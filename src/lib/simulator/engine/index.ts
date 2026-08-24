@@ -22,6 +22,7 @@ export {
 } from './learning';
 export { allocateCbo, budgetsForCampaign, paceSpend } from './budget';
 export { budgetShock, updateBudgetEma, NO_SHOCK, type BudgetShock } from './shock';
+export { validateEdit, type ValidationResult } from './validate';
 export {
   applyEdit, previewReset,
   type SimEdit, type EditResult, type EntityLevel, type NewCampaign, type NewAdSet, type NewAd,

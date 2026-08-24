@@ -141,8 +141,10 @@ export function buildSimRows({ state, campaignTotals, adSetTotals, adTotals }: B
       t,
       // Reach is a property of the audience pool, which lives at the ad set, so an
       // ad has no reach of its own. Reporting the parent's would double-count it
-      // across sibling ads, and reporting zero is the honest answer.
+      // across sibling ads, and a literal 0 would read as "reached nobody", so the
+      // column is flagged as not applicable and renders a dash.
       reach: 0,
+      reachNotApplicable: true,
       funnel: funnelFor(strategy as 'Prospecting' | 'Retargeting' | 'Catalog', t.purchases, t.linkClicks),
       paused: ad.status !== 'active',
     };

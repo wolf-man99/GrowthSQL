@@ -1,6 +1,7 @@
 import { applyEditToAccount, previewEditReset } from '@/lib/simulator/account';
 import { requireOwnedAccount, requireRunAccess } from '@/lib/simulator/guard';
-import type { SimEdit } from '@/lib/simulator/engine';
+import { validateEdit, type SimEdit } from '@/lib/simulator/engine';
+import { creativeById } from '@/lib/simulator/creatives';
 
 export const runtime = 'nodejs';
 
@@ -28,6 +29,12 @@ export async function POST(req: Request) {
 
   const owned = await requireOwnedAccount(body.accountId, auth.profileId);
   if (!owned.ok) return owned.response;
+
+  // Validate before anything else touches it. Both the preview and the apply run
+  // against the same check, so a learner can never be shown a preview for an edit
+  // that would then be rejected.
+  const valid = validateEdit(owned.account.state, body.edit, (id) => Boolean(creativeById(id)));
+  if (!valid.ok) return Response.json({ error: valid.error }, { status: 400 });
 
   if (body.preview) {
     return Response.json({ ok: true, resetAdSetIds: previewEditReset(owned.account, body.edit) });

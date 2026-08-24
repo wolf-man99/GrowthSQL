@@ -2,13 +2,14 @@
 
 import { useCallback, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, Play, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, Play, Plus, SlidersHorizontal } from 'lucide-react';
 import {
   AudiencesPanel, COLUMNS, DEFAULT_COLUMNS, FOOTER_SKIP, Kpi, ReportingPanel, TableRow,
   groupRows, num, sumRows,
   type DisplayRow,
 } from '@/components/meta/ads-manager/shared';
 import { AdsManagerStyles } from '@/components/meta/ads-manager/styles';
+import { CreateFlow, type CreateLevel } from '@/components/meta/ads-manager/CreateFlow';
 import { inr } from '@/lib/simulator/demo-account';
 import type { SimRows } from '@/lib/simulator/view';
 import type { SimEdit, SimState } from '@/lib/simulator/engine';
@@ -78,6 +79,7 @@ export function SimDashboard(props: SimDashboardProps) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string; level: 'campaign' | 'adset'; value: string } | null>(null);
+  const [creating, setCreating] = useState<CreateLevel | null>(null);
 
   const refresh = useCallback(() => {
     startTransition(() => router.refresh());
@@ -152,6 +154,24 @@ export function SimDashboard(props: SimDashboardProps) {
       refresh();
     }
   }, [post, props.accountId, props.state.adSets, refresh]);
+
+  /**
+   * Applies several edits in sequence.
+   *
+   * Creating an ad set and its first ad is two edits, and the second depends on the
+   * first having landed, so they cannot be fired in parallel. Stops at the first
+   * failure rather than pressing on, which would leave a half-built campaign.
+   */
+  const submitEdits = useCallback(async (edits: SimEdit[], describe: string) => {
+    setNotice(null);
+    for (const edit of edits) {
+      const data = await post('/api/sim/edit', { accountId: props.accountId, edit });
+      if (!data) return;
+    }
+    setCreating(null);
+    setNotice(`${describe}. It starts delivering when you next advance the clock.`);
+    refresh();
+  }, [post, props.accountId, refresh]);
 
   const toggleStatus = useCallback((level: 'campaign' | 'adset' | 'ad') => (id: string, paused: boolean) => {
     void applyEdit(
@@ -309,6 +329,14 @@ export function SimDashboard(props: SimDashboardProps) {
                   ))}
                 </div>
                 <div className="mb-actions">
+                  <button
+                    type="button"
+                    className="mb-btn-primary"
+                    disabled={working}
+                    onClick={() => setCreating(nav === 'campaigns' ? 'campaign' : nav === 'adsets' ? 'adset' : 'ad')}
+                  >
+                    <Plus size={13} /> Create
+                  </button>
                   <div className="mb-cols-wrap">
                     <button type="button" className="mb-toolbtn" onClick={() => { setRangeOpen(false); setColumnsOpen((o) => !o); }}>
                       <SlidersHorizontal size={13} /> Columns
@@ -451,6 +479,16 @@ export function SimDashboard(props: SimDashboardProps) {
           )}
         </div>
       </div>
+
+      {creating && (
+        <CreateFlow
+          level={creating}
+          state={props.state}
+          busy={working}
+          onCancel={() => setCreating(null)}
+          onSubmit={(edits, describe) => void submitEdits(edits, describe)}
+        />
+      )}
 
       <AdsManagerStyles />
 

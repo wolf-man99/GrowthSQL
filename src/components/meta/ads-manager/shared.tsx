@@ -76,6 +76,10 @@ export interface DisplayRow {
   /** Simulator only: lets a row carry the actions available on it. */
   entityId?: string;
   paused?: boolean;
+  /** Set on rows where reach is meaningless rather than zero. An ad has no reach of
+   *  its own (the audience pool belongs to its ad set), and rendering a real 0 there
+   *  reads as "reached nobody" instead of "not a thing at this level". */
+  reachNotApplicable?: boolean;
 }
 
 export interface ColumnDef {
@@ -92,9 +96,9 @@ export const COLUMNS: ColumnDef[] = [
   { id: 'bidStrategy', label: 'Bid strategy', group: 'Performance', defaultOn: true, numeric: false, render: (r) => r.bidStrategyText },
   { id: 'budget', label: 'Budget', group: 'Performance', defaultOn: true, numeric: true, render: (r) => r.budgetText },
   { id: 'results', label: 'Results', group: 'Performance', defaultOn: true, numeric: true, render: (r) => num(r.t.purchases) },
-  { id: 'reach', label: 'Reach', group: 'Performance', defaultOn: true, numeric: true, render: (r) => num(r.reach) },
+  { id: 'reach', label: 'Reach', group: 'Performance', defaultOn: true, numeric: true, render: (r) => (r.reachNotApplicable ? '–' : num(r.reach)) },
   { id: 'impressions', label: 'Impressions', group: 'Performance', defaultOn: true, numeric: true, render: (r) => num(r.t.impressions) },
-  { id: 'frequency', label: 'Frequency', group: 'Performance', defaultOn: false, numeric: true, render: (r) => (r.reach > 0 ? (r.t.impressions / r.reach).toFixed(2) : '–') },
+  { id: 'frequency', label: 'Frequency', group: 'Performance', defaultOn: false, numeric: true, render: (r) => (!r.reachNotApplicable && r.reach > 0 ? (r.t.impressions / r.reach).toFixed(2) : '–') },
   { id: 'cpm', label: 'CPM', group: 'Performance', defaultOn: true, numeric: true, render: (r) => (r.t.impressions > 0 ? inr(Math.round(cpm(r.t))) : '–') },
   { id: 'cpc', label: 'CPC (link)', group: 'Performance', defaultOn: true, numeric: true, render: (r) => (r.t.linkClicks > 0 ? inr(Math.round(cpc(r.t))) : '–') },
   { id: 'ctr', label: 'CTR (link)', group: 'Performance', defaultOn: true, numeric: true, render: (r) => (r.t.impressions > 0 ? pct(ctr(r.t)) : '–') },
