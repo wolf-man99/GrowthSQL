@@ -19,6 +19,7 @@
 import { applyEdit, previewReset, run, tick, type DayResult } from '../src/lib/simulator/engine';
 import { resolveCreative } from '../src/lib/simulator/creatives';
 import { ad, adSet, audience, campaign, state } from '../src/lib/simulator/factory';
+import { buildSandboxAccount } from '../src/lib/simulator/scenarios/sandbox';
 
 const OPTS = { seed: 20260812, resolveCreative };
 
@@ -447,6 +448,62 @@ section('Module 7.2 — a duplicate is a new ad set, not a free stabilised one')
     'a duplicate has to earn its own stability');
   check('the copy carries its own ad', dup.state.ads.some((a) => a.id === 'ad2' && a.adSetId === 'as2'),
     'ads are duplicated alongside the ad set');
+}
+
+// ────────────────────────────────────────── 11. the sandbox account's design ──
+//
+// The starting account claims, in its own docblock, to contain specific teachable
+// flaws. Those claims are load-bearing: the whole point of handing a learner an
+// imperfect account is that advancing the clock without intervening should visibly
+// go wrong. Asserting it here stops the scenario from quietly becoming benign if
+// the model is retuned later.
+
+section('Sandbox — the starting account contains its intended lessons');
+{
+  const sandbox = buildSandboxAccount();
+  check('opens with a recognisable multi-campaign account',
+    sandbox.campaigns.length === 4 && sandbox.adSets.length === 9 && sandbox.ads.length === 11,
+    `${sandbox.campaigns.length} campaigns, ${sandbox.adSets.length} ad sets, ${sandbox.ads.length} ads`);
+
+  const out = run(sandbox, 42, OPTS);
+  const byId = new Map(out.state.adSets.map((a) => [a.id, a]));
+
+  // The under-funded retargeting ad set should still be stuck.
+  const video = byId.get('as-video');
+  check('the under-funded ad set is stranded in Learning Limited',
+    video?.runtime.learningState === 'limited',
+    `as-video at ₹400/day is "${video?.runtime.learningState}"`);
+
+  // The small warm pool should saturate: frequency well past the fatigue onset.
+  const cart = byId.get('as-cart');
+  const cartFreq = cart && cart.runtime.reach > 0 ? cart.runtime.impressions / cart.runtime.reach : 0;
+  check('the small retargeting pool saturates', cartFreq > 3,
+    `cart abandoners at ${cartFreq.toFixed(1)}x frequency`);
+
+  const early = out.results.slice(0, 5);
+  const late = out.results.slice(-5);
+
+  // Note on what is deliberately absent: the prospecting ad sets do NOT demonstrate
+  // creative fatigue, and the sandbox does not claim they do. At this account's
+  // realistic scale (₹2,400/day against a 380k pool) six weeks buys roughly 1.5x
+  // frequency, which is the onset threshold, not past it. Manufacturing a burn here
+  // would need either an implausibly tiny audience or an implausibly large budget.
+  // Fatigue is taught instead by `aud-cart` saturating above, and properly by the
+  // dedicated creative mission, where the conditions can be set to suit the lesson.
+
+  // CBO should already be concentrating inside the Advantage+ campaign.
+  const advYoung = byId.get('as-adv-young')?.runtime.spend ?? 0;
+  const advOlder = byId.get('as-adv-older')?.runtime.spend ?? 0;
+  const advTotal = advYoung + advOlder;
+  const advTop = Math.max(advYoung, advOlder) / Math.max(1, advTotal);
+  check('CBO has already picked a favourite in the Advantage+ campaign', advTop > 0.6,
+    `${(advTop * 100).toFixed(0)}% of that campaign's spend went to one ad set`);
+
+  // And doing nothing at all should be visibly worse by the end than at the start.
+  const roasEarly = sum(early, (r) => r.account.revenue) / Math.max(1, sum(early, (r) => r.account.spend));
+  const roasLate = sum(late, (r) => r.account.revenue) / Math.max(1, sum(late, (r) => r.account.spend));
+  check('leaving the account untouched degrades it', roasLate < roasEarly,
+    `ROAS ${roasEarly.toFixed(2)}x -> ${roasLate.toFixed(2)}x over six weeks of doing nothing`);
 }
 
 // ────────────────────────────────────────────────────────────────── report ──
