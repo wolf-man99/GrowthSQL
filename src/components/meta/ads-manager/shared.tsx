@@ -171,11 +171,14 @@ export function Kpi({ label, value }: { label: string; value: string }) {
  * real pause/resume. Passing nothing keeps the read-only behaviour.
  */
 export function TableRow({
-  row, columns, onToggle,
+  row, columns, onToggle, editableColumns, onEditCell,
 }: {
   row: DisplayRow;
   columns: ColumnDef[];
   onToggle?: (id: string, next: boolean) => void;
+  /** Column ids this row allows editing in place, e.g. `['budget']`. */
+  editableColumns?: Set<string>;
+  onEditCell?: (columnId: string, row: DisplayRow) => void;
 }) {
   const paused = row.paused ?? false;
   return (
@@ -198,9 +201,25 @@ export function TableRow({
         <span className="mb-campaign-name">{row.name}</span>
         <span className="mb-campaign-type">{row.subtitle}</span>
       </td>
-      {columns.map((col) => (
-        <td key={col.id} className={col.numeric ? 'num' : undefined}>{col.render(row)}</td>
-      ))}
+      {columns.map((col) => {
+        const editable = Boolean(onEditCell && editableColumns?.has(col.id));
+        return (
+          <td key={col.id} className={col.numeric ? 'num' : undefined}>
+            {editable ? (
+              <button
+                type="button"
+                className="mb-cell-edit"
+                onClick={() => onEditCell?.(col.id, row)}
+                aria-label={`Edit ${col.label} for ${row.name}`}
+              >
+                {col.render(row)}
+              </button>
+            ) : (
+              col.render(row)
+            )}
+          </td>
+        );
+      })}
     </tr>
   );
 }

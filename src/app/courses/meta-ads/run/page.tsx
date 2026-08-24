@@ -7,13 +7,21 @@ import { isRunUnlocked, isLearnComplete } from '@/lib/progress/gating';
 import { META_ADS_PRICING } from '@/lib/payments/pricing';
 import { Card, Button, Progress } from '@/components/ui/primitives';
 import { CheckoutButton } from '@/components/payments/CheckoutButton';
-import { RunDashboard } from '@/components/meta/RunDashboard';
+import { SimDashboard } from '@/components/meta/SimDashboard';
+import { rangeByKey, windowFor } from '@/lib/simulator/ranges';
+import { accountTotals, createAccount, loadSandbox, totalsByEntity } from '@/lib/simulator/account';
+import { buildSimRows } from '@/lib/simulator/view';
+import { buildSandboxAccount } from '@/lib/simulator/scenarios/sandbox';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Run, Meta Ads Mastery, Tiramisu' };
 
-export default async function MetaAdsRun() {
+export default async function MetaAdsRun({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string }>;
+}) {
   const profileId = await requireProfileId('/courses/meta-ads/run');
 
   const unlocked = await isRunUnlocked(profileId, 'meta-ads');
@@ -33,6 +41,27 @@ export default async function MetaAdsRun() {
     return <LockedState completedCount={done.length} xp={profile.xp} level={profile.level} learnComplete={learnComplete} />;
   }
 
+  // The learner's live account, created on first visit and reopened on every one
+  // after. Opening Run must never silently start a fresh account and discard the
+  // decisions already made in it.
+  let account = await loadSandbox(profileId, 'meta-ads');
+  if (!account) {
+    account = await createAccount({ profileId, courseId: 'meta-ads', state: buildSandboxAccount() });
+  }
+
+  const { range } = await searchParams;
+  const option = rangeByKey(range);
+  const { fromDay, toDay } = windowFor(account.currentDay, option);
+
+  const [campaignTotals, adSetTotals, adTotals, totals] = await Promise.all([
+    totalsByEntity(account.id, 'campaign', fromDay, toDay),
+    totalsByEntity(account.id, 'adset', fromDay, toDay),
+    totalsByEntity(account.id, 'ad', fromDay, toDay),
+    accountTotals(account.id, fromDay, toDay),
+  ]);
+
+  const rows = buildSimRows({ state: account.state, campaignTotals, adSetTotals, adTotals });
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 glass">
@@ -50,16 +79,26 @@ export default async function MetaAdsRun() {
             <PartyPopper size={22} />
           </span>
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight">You unlocked Run</h1>
+            <h1 className="text-3xl font-extrabold tracking-tight">Your account</h1>
             <p className="mt-1 max-w-xl text-[var(--text-muted)]">
-              You&apos;ve finished every Learn lesson. Below is NORTHBOUND&apos;s account,
-              built to feel like the real Ads Manager you&apos;ll actually use on the job.
+              NORTHBOUND is yours to run. Pause things, move budgets, and advance the clock
+              to see what your decisions actually did. Nothing moves until you move it.
             </p>
           </div>
         </div>
 
         <div className="mt-8">
-          <RunDashboard />
+          <SimDashboard
+            accountId={account.id}
+            brandName="NORTHBOUND"
+            brandCategory="D2C Streetwear"
+            currentDay={account.currentDay}
+            state={account.state}
+            rows={rows}
+            totals={totals}
+            rangeKey={option.key}
+            rangeLabel={option.label}
+          />
         </div>
       </div>
     </div>
