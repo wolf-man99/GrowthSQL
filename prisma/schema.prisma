@@ -60,21 +60,23 @@ model Profile {
   dailyActivity  DailyActivity[]
   enrollments    Enrollment[]
   payments       Payment[]
+  simAccounts    SimAccount[]
+  missionRuns    MissionRun[]
 }
 
 /// One row per (profile, course) a learner has started.
 model Enrollment {
-  id            String    @id @default(cuid())
-  profileId     String
-  courseId      String
-  startedAt     DateTime  @default(now())
-  completedAt   DateTime?
-  lastActive    DateTime  @default(now())
+  id               String    @id @default(cuid())
+  profileId        String
+  courseId         String
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  lastActive       DateTime  @default(now())
   // Set once, the moment every "Learn" lesson in this course is first passed, the
   // progress half of the Run gate. Independent of payment: isRunUnlocked() requires
   // this AND runPurchasedAt below, so finishing the lessons doesn't skip paying and
   // paying doesn't skip finishing the lessons.
-  runUnlockedAt DateTime?
+  runUnlockedAt    DateTime?
   // Payment entitlements. Set by a verified Razorpay payment (see the Payment model)
   // for the 'learn'/'bundle' and 'run'/'bundle' products respectively, a bundle
   // purchase sets both in the same transaction. Modules past the free preview check
@@ -252,17 +254,89 @@ model Rival {
 }
 
 model DailyActivity {
-  id               String @id @default(cuid())
-  profileId        String
-  date             String // ISO date
-  xpEarned         Int    @default(0)
-  exercisesSolved  Int    @default(0)
-  exercisesFailed  Int    @default(0)
-  minutesActive    Int    @default(0)
-  accuracyNumerator Int   @default(0)
+  id                String @id @default(cuid())
+  profileId         String
+  date              String // ISO date
+  xpEarned          Int    @default(0)
+  exercisesSolved   Int    @default(0)
+  exercisesFailed   Int    @default(0)
+  minutesActive     Int    @default(0)
+  accuracyNumerator Int    @default(0)
 
   profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
   @@unique([profileId, date])
   @@index([profileId, date])
+}
+
+// ─────────────────────────────────────────────────────────── Run simulator ──
+//
+// The Run tier's account state. Deliberately not one table per entity: every read
+// is "this one learner's account", so the settings tree lives as a JSON document
+// and only the daily metrics, which need aggregating across ranges, get rows.
+
+/// One simulated ad account: either a mission run or the open sandbox.
+model SimAccount {
+  id         String   @id @default(cuid())
+  profileId  String
+  courseId   String // 'meta-ads'
+  /// Null for the free-play sandbox; otherwise the mission this account is running.
+  missionId  String?
+  /// Days elapsed since the account opened. Advanced by the tick, never by wall clock.
+  currentDay Int      @default(0)
+  status     String   @default("active") // active | complete | abandoned
+  /// Every random draw derives from this, so a run replays identically.
+  seed       Int
+  /// SimState from src/lib/simulator/engine/types.ts: campaigns, ad sets, ads,
+  /// audiences, account conditions, and each entity's cumulative runtime counters.
+  state      Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  profile Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  days    SimDay[]
+
+  @@index([profileId, courseId])
+}
+
+/// One entity's numbers for one simulated day. Written once per tick and never
+/// updated, so the dashboard's date ranges aggregate over immutable history.
+model SimDay {
+  id          String @id @default(cuid())
+  accountId   String
+  day         Int
+  /// Entity this row describes, or '__account__' for the account-level rollup.
+  entityId    String
+  entityLevel String // account | campaign | adset | ad
+  spend       Int    @default(0)
+  impressions Int    @default(0)
+  linkClicks  Int    @default(0)
+  purchases   Int    @default(0)
+  revenue     Int    @default(0)
+  reach       Int    @default(0)
+
+  account SimAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, day, entityId])
+  @@index([accountId, day])
+  @@index([accountId, entityId])
+}
+
+/// A learner's attempt at one mission, and how it was graded.
+model MissionRun {
+  id         String    @id @default(cuid())
+  profileId  String
+  missionId  String
+  accountId  String?
+  status     String    @default("in_progress") // in_progress | passed | failed
+  score      Int?
+  /// Per-objective pass/fail plus the measured value, for the debrief screen.
+  objectives Json?
+  startedAt  DateTime  @default(now())
+  gradedAt   DateTime?
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, missionId])
+  @@index([profileId])
 }

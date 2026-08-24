@@ -280,20 +280,24 @@ export interface DayResult {
 
 export const MODEL = {
   /** CPM for a broad, cold audience with average creative, before any pressure. */
-  baseCpm: 105,
+  baseCpm: 118,
   /** Audience size that `baseCpm` describes. Smaller pools cost more. */
   referenceAudienceSize: 4_000_000,
   /** How sharply CPM rises as the audience narrows. */
   scarcityExponent: 0.27,
   scarcityMax: 6,
 
-  /** Link CTR (%) at warmth 0 and warmth 1, interpolated between. */
-  baseCtrCold: 1.2,
-  baseCtrWarm: 3.2,
+  /** Link CTR (%) at warmth 0 and warmth 1, interpolated between.
+   *  Calibrated against the frozen case-study account in demo-account.ts, whose
+   *  prospecting campaigns run ~1.3% and warm retargeting ~3.2%. Set these too
+   *  generous and the simulated account returns a blended ROAS no real D2C brand
+   *  sees, which would teach learners the wrong benchmark for "good". */
+  baseCtrCold: 1.0,
+  baseCtrWarm: 2.8,
 
   /** Conversion rate (%) from link click, at warmth 0 and 1. */
-  baseCvrCold: 3.2,
-  baseCvrWarm: 9.5,
+  baseCvrCold: 2.5,
+  baseCvrWarm: 8.0,
 
   /** Frequency below which a creative shows no fatigue at all. */
   fatigueOnsetFrequency: 1.5,

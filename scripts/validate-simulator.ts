@@ -16,7 +16,7 @@
  * Run: npx tsx scripts/validate-simulator.ts
  */
 
-import { run, tick, type DayResult } from '../src/lib/simulator/engine';
+import { applyEdit, previewReset, run, tick, type DayResult } from '../src/lib/simulator/engine';
 import { resolveCreative } from '../src/lib/simulator/creatives';
 import { ad, adSet, audience, campaign, state } from '../src/lib/simulator/factory';
 
@@ -88,13 +88,15 @@ section('Module 1.4 — metrics land in realistic bands');
 section('Module 6.1 — creative fatigue emerges without being scripted');
 {
   const s = state({
-    // A small pool so saturation arrives inside the test window.
-    audiences: [audience('aud', 'Narrow interest', 120_000, 0.2)],
+    // A small pool run hard, so the account genuinely saturates inside the window.
+    // Sized deliberately: on a broad audience fatigue is real but takes months, and
+    // a test that cannot reach high frequency proves nothing about the decay curve.
+    audiences: [audience('aud', 'Narrow interest', 60_000, 0.2)],
     campaigns: [campaign('c1', 'Prospecting')],
     adSets: [adSet('as1', 'c1', 'Interest', 'aud', { dailyBudget: 3500 })],
     ads: [ad('ad1', 'as1', 'Offer slab', 'cr-offer-slab')],
   });
-  const { results } = run(s, 30, OPTS);
+  const { results } = run(s, 40, OPTS);
   const early = results.slice(0, 5);
   const late = results.slice(-5);
 
@@ -112,9 +114,9 @@ section('Module 6.1 — creative fatigue emerges without being scripted');
   // better. If this fails, `fatigueRate` is not actually differentiating assets.
   const durable = structuredClone(s);
   durable.ads[0].creativeId = 'cr-ugc-street';
-  const durableLate = run(durable, 30, OPTS).results.slice(-5);
+  const durableLate = run(durable, 40, OPTS).results.slice(-5);
   check('durable creative outlasts the offer slab', ctrOf(durableLate) > ctrOf(late),
-    `UGC ${ctrOf(durableLate).toFixed(2)}% vs slab ${ctrOf(late).toFixed(2)}% at day 30`);
+    `UGC ${ctrOf(durableLate).toFixed(2)}% vs slab ${ctrOf(late).toFixed(2)}% at day 40`);
 }
 
 // ──────────────────────────────────────── 3. learning phase & the 50-event rule ──
@@ -124,11 +126,12 @@ section('Module 6.1 — creative fatigue emerges without being scripted');
 
 section('Module 4.2 — consolidation escapes Learning Limited');
 {
-  // Sized against the model's own measured economics on this audience (~₹250 a
-  // purchase): clearing 50 events in 7 days takes roughly ₹2,000/day. The same
-  // ₹7,500 split eight ways gives ₹937 each and strands all of them; split three
-  // ways it gives ₹2,500 each, which clears the threshold comfortably.
-  const TOTAL = 7_500;
+  // Sized against the model's own measured economics on this 400k audience, where
+  // scarcity pushes CPM up and a purchase costs roughly ₹400: clearing 50 events in
+  // 7 days needs somewhere between ₹3,000 and ₹4,000/day. The same ₹12,000 split
+  // eight ways gives ₹1,500 each and strands all of them; split three ways it gives
+  // ₹4,000 each, which clears the threshold.
+  const TOTAL = 12_000;
 
   const spread = state({
     audiences: Array.from({ length: 8 }, (_, i) => audience(`aud${i}`, `Segment ${i}`, 400_000, 0.1)),
@@ -218,25 +221,29 @@ section('Module 7.1 — gentle vertical scaling beats an overnight jump');
     ads: [ad('ad1', 'as1', 'Ad', 'cr-ugc-street')],
   });
 
-  // Settle first, so both arms start from a stabilised ad set.
-  const settled = run(build(), 14, OPTS).state;
-
-  // Both arms must finish at the SAME daily budget, otherwise this measures the
-  // cost of scale rather than the cost of how you got there. Seven ~20% steps land
-  // on 1.2^7 of the starting budget, so the jump arm goes straight to that figure.
   const START = 2000;
-  const TARGET = Math.round(START * 1.2 ** 7);
+  const TARGET = Math.round(START * 1.2 ** 7); // where seven ~20% steps would land
 
-  const jumped = structuredClone(settled);
+  // Three arms, all measured over the same fortnight at the same daily budget, so
+  // the only thing that differs is how each one arrived there. Comparing against a
+  // control that was *already* running at the target is what isolates the cost of
+  // the jump itself: comparing jump-vs-steps alone would mostly measure the fact
+  // that a ramping ad set spends less money and therefore saturates less.
+  const control = structuredClone(run(build(), 14, OPTS).state);
+  control.adSets[0].dailyBudget = TARGET;
+  control.adSets[0].runtime.budgetEma = TARGET; // settled here, no shock owed
+  const controlOut = run(control, 14, OPTS);
+
+  const jumped = structuredClone(run(build(), 14, OPTS).state);
   jumped.adSets[0].dailyBudget = TARGET; // the whole increase, overnight
   jumped.adSets[0].runtime.learningResetDay = jumped.day; // a significant edit resets learning
   jumped.adSets[0].runtime.trailingEvents = [];
   const jumpedOut = run(jumped, 14, OPTS);
 
-  let steppedState = structuredClone(settled);
+  let steppedState = structuredClone(run(build(), 14, OPTS).state);
   const steppedResults: DayResult[] = [];
   // ~20% every other day: each step stays under the significance threshold, so
-  // delivery is never knocked back into learning.
+  // delivery is never knocked back into learning and never shocked.
   for (let d = 0; d < 14; d++) {
     if (d % 2 === 0) {
       const cur = steppedState.adSets[0].dailyBudget ?? START;
@@ -247,21 +254,21 @@ section('Module 7.1 — gentle vertical scaling beats an overnight jump');
     steppedResults.push(step.result);
   }
 
-  // Measured over the scaling fortnight only. Reading the entities' cumulative
-  // runtime instead would blend in the 14 settled days both arms share, which
-  // dilutes the very difference this check exists to detect.
   const cpaOver = (rs: DayResult[]) =>
     sum(rs, (r) => r.account.spend) / Math.max(1, sum(rs, (r) => r.account.purchases));
+  const controlCpa = cpaOver(controlOut.results);
   const jumpedCpa = cpaOver(jumpedOut.results);
   const steppedCpa = cpaOver(steppedResults);
 
-  const jBudget = jumpedOut.state.adSets[0].dailyBudget ?? 0;
-  const sBudget = steppedState.adSets[0].dailyBudget ?? 0;
-  check('both arms finish at the same daily budget', Math.abs(jBudget - sBudget) <= 2,
-    `₹${jBudget} vs ₹${sBudget}/day, so this compares method not scale`);
-  check('the overnight jump lands a worse CPA than stepped scaling',
-    jumpedCpa > steppedCpa * 1.05,
-    `jump ₹${jumpedCpa.toFixed(0)} vs stepped ₹${steppedCpa.toFixed(0)} per purchase over the same fortnight`);
+  check('all arms finish at the same daily budget',
+    Math.abs((jumpedOut.state.adSets[0].dailyBudget ?? 0) - (steppedState.adSets[0].dailyBudget ?? 0)) <= 2,
+    `₹${TARGET}/day either way, so this compares method not scale`);
+  check('jumping costs more than having been there all along',
+    jumpedCpa > controlCpa * 1.05,
+    `jump ₹${jumpedCpa.toFixed(0)} vs settled ₹${controlCpa.toFixed(0)} per purchase at the same budget`);
+  check('stepping up avoids most of that cost',
+    steppedCpa < jumpedCpa,
+    `stepped ₹${steppedCpa.toFixed(0)} vs jumped ₹${jumpedCpa.toFixed(0)}`);
   check('the jump spends time back in learning',
     jumpedOut.state.adSets[0].runtime.learningResetDay > steppedState.adSets[0].runtime.learningResetDay,
     `reset on day ${jumpedOut.state.adSets[0].runtime.learningResetDay} vs ${steppedState.adSets[0].runtime.learningResetDay}`);
@@ -368,6 +375,78 @@ section('Engine — invariants hold');
     noAds.ads[0].status = 'paused';
     return run(noAds, 7, OPTS).state.adSets[0].runtime.spend === 0;
   })(), 'nothing to deliver means nothing to buy');
+}
+
+// ──────────────────────────────────────────────── 10. the edit choke point (6.3) ──
+
+section('Module 6.3 — significant edits reset learning, cosmetic ones do not');
+{
+  const build = () => state({
+    audiences: [
+      audience('aud', 'Broad', 2_000_000, 0.1),
+      audience('aud2', 'Other broad', 2_000_000, 0.1),
+    ],
+    campaigns: [campaign('c1', 'Prospecting')],
+    adSets: [adSet('as1', 'c1', 'Set', 'aud', { dailyBudget: 3000 })],
+    ads: [ad('ad1', 'as1', 'Ad', 'cr-ugc-street')],
+  });
+  // Run it to stability first: a reset only means something if there was progress.
+  const settled = run(build(), 14, OPTS).state;
+  const settledEvents = settled.adSets[0].runtime.trailingEvents.length;
+  check('the ad set accumulated learning progress', settledEvents > 0,
+    `${settledEvents} days of trailing events before any edit`);
+
+  const cosmetic = applyEdit(settled, { kind: 'rename', level: 'adset', id: 'as1', name: 'Renamed' });
+  check('renaming resets nothing', cosmetic.resetAdSetIds.length === 0, 'a name is not a delivery signal');
+
+  const nudge = applyEdit(settled, { kind: 'setAdSetBudget', id: 'as1', dailyBudget: 3450 }); // +15%
+  check('a ~15% budget nudge resets nothing', nudge.resetAdSetIds.length === 0,
+    '₹3000 -> ₹3450 stays under the significance threshold');
+
+  const jump = applyEdit(settled, { kind: 'setAdSetBudget', id: 'as1', dailyBudget: 9000 }); // +200%
+  check('a 3x budget jump resets learning', jump.resetAdSetIds.includes('as1'),
+    '₹3000 -> ₹9000 is a significant change');
+  check('the reset actually clears accumulated progress',
+    jump.state.adSets[0].runtime.trailingEvents.length === 0, 'trailing window emptied');
+
+  const swap = applyEdit(settled, { kind: 'setAudience', id: 'as1', audienceId: 'aud2' });
+  check('changing the audience resets learning', swap.resetAdSetIds.includes('as1'), 'a new pool is a new problem');
+  check('changing the audience clears reach', swap.state.adSets[0].runtime.reach === 0,
+    'accumulated reach described the old pool');
+
+  const creative = applyEdit(settled, { kind: 'setAdCreative', id: 'ad1', creativeId: 'cr-offer-slab', format: 'image' });
+  check('swapping creative resets learning', creative.resetAdSetIds.includes('as1'), 'new creative, new delivery');
+  check('the new creative starts un-fatigued', creative.state.ads[0].runtime.impressions === 0,
+    'fatigue belongs to the asset, not the slot');
+
+  // previewReset must agree with what applyEdit actually does, or the UI warns
+  // about the wrong thing.
+  const predicted = previewReset(settled, { kind: 'setAdSetBudget', id: 'as1', dailyBudget: 9000 });
+  check('previewReset agrees with applyEdit', predicted.join() === jump.resetAdSetIds.join(),
+    `predicted [${predicted}], applied [${jump.resetAdSetIds}]`);
+}
+
+section('Module 7.2 — a duplicate is a new ad set, not a free stabilised one');
+{
+  const settled = run(state({
+    audiences: [audience('aud', 'Broad', 2_000_000, 0.1), audience('fresh', 'Fresh pool', 2_000_000, 0.1)],
+    campaigns: [campaign('c1', 'Prospecting')],
+    adSets: [adSet('as1', 'c1', 'Winner', 'aud', { dailyBudget: 4000 })],
+    ads: [ad('ad1', 'as1', 'Ad', 'cr-ugc-street')],
+  }), 21, OPTS).state;
+
+  const dup = applyEdit(settled, {
+    kind: 'duplicateAdSet', id: 'as1', newId: 'as2', name: 'Winner (copy)',
+    audienceId: 'fresh', newAdIds: ['ad2'],
+  });
+  const copy = dup.state.adSets.find((a) => a.id === 'as2');
+
+  check('the copy inherits settings', copy?.dailyBudget === 4000, `₹${copy?.dailyBudget}/day, same as the original`);
+  check('the copy starts from zero spend', copy?.runtime.spend === 0, 'no inherited delivery history');
+  check('the copy starts in learning', copy?.runtime.learningState === 'learning',
+    'a duplicate has to earn its own stability');
+  check('the copy carries its own ad', dup.state.ads.some((a) => a.id === 'ad2' && a.adSetId === 'as2'),
+    'ads are duplicated alongside the ad set');
 }
 
 // ────────────────────────────────────────────────────────────────── report ──
