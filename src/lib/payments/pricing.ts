@@ -32,10 +32,11 @@ export function isProduct(value: unknown): value is Product {
  * owned (Learn is a hard prerequisite for Run's own progress gate anyway, so a
  * standalone Run purchase would just strand the buyer at the free preview). Bundle
  * is only useful before owning Learn. Buying it afterward would just re-pay for
- * Learn a second time.
+ * Learn a second time. Every branch also blocks re-buying a product already owned,
+ * a real charge that used to be possible via a stale tab or a direct API call.
  */
-export function isProductPurchasable(product: Product, hasLearn: boolean): boolean {
-  if (product === 'run') return hasLearn;
-  if (product === 'bundle') return !hasLearn;
-  return true;
+export function isProductPurchasable(product: Product, hasLearn: boolean, hasRun: boolean): boolean {
+  if (product === 'learn') return !hasLearn;
+  if (product === 'run') return hasLearn && !hasRun;
+  return !hasLearn; // bundle
 }

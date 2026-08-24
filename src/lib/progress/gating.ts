@@ -1,5 +1,5 @@
 import { prisma } from '../db';
-import { META_LESSONS, metaLessonItemId, metaModuleBySlug } from '../content/meta-ads';
+import { META_LESSONS, metaLessonBySlug, metaLessonItemId, metaModuleBySlug } from '../content/meta-ads';
 import { FREE_MODULE_COUNT } from '../payments/pricing';
 
 /**
@@ -75,9 +75,13 @@ export async function isRunUnlocked(profileId: string, courseId: string): Promis
  * works from a raw attempt POST body without re-resolving the lesson object.
  */
 export async function isMetaLessonUnlocked(profileId: string, itemId: string): Promise<boolean> {
-  const moduleSlug = itemId.split('/')[0];
+  const [moduleSlug, lessonSlug] = itemId.split('/');
   const meta = metaModuleBySlug(moduleSlug);
   if (!meta) return false;
+  // Validate itemId names a real lesson in this module, not just a real module slug,
+  // otherwise a fabricated itemId inside a free module records as a novel "first pass."
+  const lesson = metaLessonBySlug(lessonSlug);
+  if (!lesson || lesson.moduleSlug !== moduleSlug) return false;
   if (meta.index <= FREE_MODULE_COUNT) return true;
 
   const enrollment = await prisma.enrollment.findUnique({

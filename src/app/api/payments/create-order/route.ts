@@ -30,8 +30,12 @@ export async function POST(req: Request) {
 
   const { enrollment } = await ensureEnrollment(profileId, 'meta-ads');
   const hasLearn = Boolean(enrollment.learnPurchasedAt);
-  if (!isProductPurchasable(product, hasLearn)) {
-    const reason = product === 'run' ? 'Buy Learn first - Run isn\'t sold on its own.' : 'You already own Learn. Buy Run instead of the bundle.';
+  const hasRun = Boolean(enrollment.runPurchasedAt);
+  if (!isProductPurchasable(product, hasLearn, hasRun)) {
+    const reason =
+      product === 'learn' ? 'You already own Learn.'
+      : product === 'run' ? (hasRun ? 'You already own Run.' : 'Buy Learn first - Run isn\'t sold on its own.')
+      : 'You already own Learn. Buy Run instead of the bundle.';
     return Response.json({ error: reason }, { status: 400 });
   }
 
