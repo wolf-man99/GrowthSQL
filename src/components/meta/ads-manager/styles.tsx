@@ -227,6 +227,26 @@ export function AdsManagerStyles() {
 
         .mb-busy { opacity: 0.6; pointer-events: none; }
 
+        .mb-search {
+          display: inline-flex; align-items: center; gap: 6px;
+          border: 1px solid var(--m-line); border-radius: 6px; padding: 0 8px;
+          background: var(--m-card); color: var(--m-muted);
+        }
+        .mb-search input {
+          font: inherit; font-size: 12.5px; border: none; outline: none; background: none;
+          padding: 7px 0; width: 150px; color: var(--m-ink);
+        }
+        .mb-search:focus-within { border-color: var(--m-blue); }
+
+        /* The whole header is the sort control, so the hit target matches the label. */
+        .mb-sort {
+          display: inline-flex; align-items: center; gap: 4px;
+          font: inherit; color: inherit; background: none; border: none; padding: 0;
+          cursor: pointer;
+        }
+        .mb-table th.num .mb-sort { flex-direction: row-reverse; }
+        .mb-sort:hover { color: var(--m-blue); }
+
         @media (prefers-reduced-motion: reduce) {
           .mb-shell *, .mb-shell *::after { transition: none !important; }
         }

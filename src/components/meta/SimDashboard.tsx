@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, Play, Plus, SlidersHorizontal } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, Play, Plus, Search, SlidersHorizontal } from 'lucide-react';
 import {
   AudiencesPanel, COLUMNS, DEFAULT_COLUMNS, FOOTER_SKIP, Kpi, ReportingPanel, TableRow,
   groupRows, num, sumRows,
@@ -14,6 +14,7 @@ import { inr } from '@/lib/simulator/demo-account';
 import type { SimRows } from '@/lib/simulator/view';
 import type { SimEdit, SimState } from '@/lib/simulator/engine';
 import { RANGE_OPTIONS } from '@/lib/simulator/ranges';
+import { breakdownFor, combineBreakdowns, type BreakdownKind } from '@/lib/simulator/breakdowns';
 
 /**
  * The live Run account.
@@ -78,6 +79,8 @@ export function SimDashboard(props: SimDashboardProps) {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [rangeOpen, setRangeOpen] = useState(false);
   const [reportBy, setReportBy] = useState('filterType');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<{ column: string; dir: 'asc' | 'desc' } | null>(null);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -198,13 +201,46 @@ export function SimDashboard(props: SimDashboardProps) {
     void applyEdit(edit, `Budget set to ${inr(value)}/day`);
   }, [editing, applyEdit]);
 
-  const levelRows: DisplayRow[] =
+  const levelRows: DisplayRow[] = useMemo(() => (
     nav === 'campaigns' ? props.rows.campaigns
     : nav === 'adsets' ? props.rows.adSets
     : nav === 'ads' ? props.rows.ads
-    : [];
-  const rows = levelRows.filter((r) => filter === 'All' || r.filterType === filter);
+    : []
+  ), [nav, props.rows]);
   const visibleColumns = COLUMNS.filter((c) => enabledColumns.includes(c.id));
+
+  const rows = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const filtered = levelRows.filter((r) =>
+      (filter === 'All' || r.filterType === filter)
+      && (needle === '' || r.name.toLowerCase().includes(needle) || r.subtitle.toLowerCase().includes(needle)));
+    if (!sort) return filtered;
+
+    const column = COLUMNS.find((c) => c.id === sort.column);
+    if (!column) return filtered;
+    // Numeric columns sort on the underlying value rather than the rendered
+    // string, or "₹1,00,000" would sort below "₹9,000" alphabetically.
+    const value = (r: DisplayRow): number | string => {
+      if (!column.numeric) return column.render(r).toLowerCase();
+      const raw = column.render(r).replace(/[^0-9.-]/g, '');
+      const n = Number.parseFloat(raw);
+      return Number.isFinite(n) ? n : -Infinity;
+    };
+    return [...filtered].sort((a, b) => {
+      const av = value(a); const bv = value(b);
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv));
+      return sort.dir === 'asc' ? cmp : -cmp;
+    });
+  }, [levelRows, filter, query, sort]);
+
+  function toggleSort(columnId: string) {
+    setSort((prev) =>
+      prev?.column !== columnId ? { column: columnId, dir: 'desc' }
+      : prev.dir === 'desc' ? { column: columnId, dir: 'asc' }
+      : null);
+  }
 
   const footer = useMemo(() => sumRows(rows), [rows]);
   const footerRow: DisplayRow = {
@@ -212,10 +248,24 @@ export function SimDashboard(props: SimDashboardProps) {
     bidStrategyText: '', budgetText: '', t: footer.t, reach: footer.reach, funnel: footer.funnel,
   };
 
-  const reportGroups = useMemo(
-    () => groupRows(props.rows.campaigns, reportBy === 'delivery' ? (r) => r.delivery : (r) => r.filterType),
-    [props.rows.campaigns, reportBy],
-  );
+  const isBreakdown = reportBy === 'age' || reportBy === 'gender' || reportBy === 'placement';
+
+  const reportGroups = useMemo(() => {
+    if (!isBreakdown) {
+      return groupRows(props.rows.campaigns, reportBy === 'delivery' ? (r) => r.delivery : (r) => r.filterType);
+    }
+    // Each ad set's totals split by its own audience's weights, then summed by
+    // segment, so an account mixing a narrow age band with a broad one shows the
+    // honest blend rather than one audience's shape applied to everything.
+    const audienceById = new Map(props.state.audiences.map((a) => [a.id, a]));
+    const perAdSet = props.rows.adSets.flatMap((row) => {
+      const adSet = props.state.adSets.find((a) => a.id === row.id);
+      const audience = adSet ? audienceById.get(adSet.audienceId) : undefined;
+      if (!audience || row.t.impressions === 0) return [];
+      return [breakdownFor(reportBy as BreakdownKind, row.t, audience, props.currentDay)];
+    });
+    return combineBreakdowns(perAdSet).map((r) => ({ key: r.key, t: r.t, reach: 0 }));
+  }, [isBreakdown, props.rows.campaigns, props.rows.adSets, props.state, props.currentDay, reportBy]);
 
   const roas = props.totals.spend > 0 ? props.totals.revenue / props.totals.spend : 0;
   const costPerResult = props.totals.purchases > 0 ? Math.round(props.totals.spend / props.totals.purchases) : 0;
@@ -348,6 +398,16 @@ export function SimDashboard(props: SimDashboardProps) {
                   ))}
                 </div>
                 <div className="mb-actions">
+                  <label className="mb-search">
+                    <Search size={13} aria-hidden />
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={`Search ${LEVEL_TITLE[nav].toLowerCase()}`}
+                      aria-label={`Search ${LEVEL_TITLE[nav].toLowerCase()}`}
+                    />
+                  </label>
                   {!frozen && (
                     <button
                       type="button"
@@ -393,7 +453,9 @@ export function SimDashboard(props: SimDashboardProps) {
               </div>
 
               {rows.length === 0 ? (
-                <p className="mb-empty">Nothing here yet at this level.</p>
+                <p className="mb-empty">
+                  {query.trim() ? `Nothing matches "${query.trim()}".` : 'Nothing here yet at this level.'}
+                </p>
               ) : (
                 <div className="mb-table-wrap">
                   <table className="mb-table">
@@ -402,7 +464,16 @@ export function SimDashboard(props: SimDashboardProps) {
                         <th aria-label="Delivery" />
                         <th>{LEVEL_NAME_HEADER[nav]}</th>
                         {visibleColumns.map((c) => (
-                          <th key={c.id} className={c.numeric ? 'num' : undefined}>{c.label}</th>
+                          <th key={c.id} className={c.numeric ? 'num' : undefined} aria-sort={
+                            sort?.column === c.id ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
+                          }>
+                            <button type="button" className="mb-sort" onClick={() => toggleSort(c.id)}>
+                              {c.label}
+                              {sort?.column === c.id && (
+                                sort.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />
+                              )}
+                            </button>
+                          </th>
                         ))}
                       </tr>
                     </thead>
@@ -491,12 +562,29 @@ export function SimDashboard(props: SimDashboardProps) {
               footnote="Audience sizes are invented estimates for teaching, not real reach figures. Results and spend are summed across every ad set currently using that audience, for the selected range."
             />
           ) : (
-            <ReportingPanel
-              groups={reportGroups}
-              breakdown={reportBy}
-              onBreakdown={setReportBy}
-              options={[{ key: 'filterType', label: 'By strategy' }, { key: 'delivery', label: 'By delivery' }]}
-            />
+            <>
+              <ReportingPanel
+                groups={reportGroups}
+                breakdown={reportBy}
+                onBreakdown={setReportBy}
+                options={[
+                  { key: 'filterType', label: 'By strategy' },
+                  { key: 'delivery', label: 'By delivery' },
+                  { key: 'age', label: 'By age' },
+                  { key: 'gender', label: 'By gender' },
+                  { key: 'placement', label: 'By placement' },
+                ]}
+              />
+              {isBreakdown && (
+                <p className="mb-footnote">
+                  Age, gender and placement splits are modelled from each ad set&apos;s own targeting,
+                  not measured per person: the simulator delivers at ad set level. They always add up
+                  to the totals above, and they change when you change who you target, so they are
+                  useful for reading audience mix. Treat them as a picture of your targeting rather
+                  than as tracked demographics.
+                </p>
+              )}
+            </>
           )}
         </div>
       </div>
