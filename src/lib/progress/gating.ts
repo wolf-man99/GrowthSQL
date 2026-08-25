@@ -1,6 +1,7 @@
 import { prisma } from '../db';
 import { META_LESSONS, metaLessonBySlug, metaLessonItemId, metaModuleBySlug } from '../content/meta-ads';
 import { FREE_MODULE_COUNT } from '../payments/pricing';
+import { entitlementsFor } from '../payments/entitlements';
 
 /**
  * The Learn -> Run gate. A course opts in by adding a checker here; courses with no
@@ -51,12 +52,19 @@ export function hasRunTier(courseId: string): boolean {
 export async function isRunUnlocked(profileId: string, courseId: string): Promise<boolean> {
   if (!hasRunTier(courseId)) return false;
 
+  const { hasRun, isDemo } = await entitlementsFor(profileId, courseId);
+  // The demo account skips the progress gate as well as the payment one. It exists
+  // to inspect what has been built, and requiring 23 lessons before the simulator
+  // could be looked at would make it useless for the one job it has. The locked
+  // state stays testable the honest way, from an ordinary account.
+  if (isDemo) return true;
+  if (!hasRun) return false;
+
   const enrollment = await prisma.enrollment.findUnique({
     where: { profileId_courseId: { profileId, courseId } },
-    select: { runUnlockedAt: true, runPurchasedAt: true },
+    select: { runUnlockedAt: true },
   });
-  if (!enrollment?.runPurchasedAt) return false;
-  if (enrollment.runUnlockedAt) return true;
+  if (enrollment?.runUnlockedAt) return true;
 
   const complete = await isLearnComplete(prisma, profileId, courseId);
   if (complete) {
@@ -84,9 +92,6 @@ export async function isMetaLessonUnlocked(profileId: string, itemId: string): P
   if (!lesson || lesson.moduleSlug !== moduleSlug) return false;
   if (meta.index <= FREE_MODULE_COUNT) return true;
 
-  const enrollment = await prisma.enrollment.findUnique({
-    where: { profileId_courseId: { profileId, courseId: 'meta-ads' } },
-    select: { learnPurchasedAt: true },
-  });
-  return Boolean(enrollment?.learnPurchasedAt);
+  const { hasLearn } = await entitlementsFor(profileId, 'meta-ads');
+  return hasLearn;
 }

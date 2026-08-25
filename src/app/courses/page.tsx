@@ -2,9 +2,9 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { COURSES } from '@/lib/courses/registry';
 import { getCurrentProfile } from '@/lib/auth/server';
-import { prisma } from '@/lib/db';
 import { CourseCard } from '@/components/app/CourseCard';
 import { SiteHeader, SiteFooter } from '@/components/marketing/SiteChrome';
+import { entitlementsFor } from '@/lib/payments/entitlements';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,14 +19,8 @@ export default async function CoursesPage() {
   // Only Meta Ads has real pricing today, a signed-in click on its card opens a
   // pricing dialog instead of navigating straight in. A missing Enrollment row
   // (never visited the course yet) just means nothing's been purchased.
-  const metaAdsEnrollment = profile
-    ? await prisma.enrollment.findUnique({
-        where: { profileId_courseId: { profileId: profile.id, courseId: 'meta-ads' } },
-        select: { learnPurchasedAt: true, runPurchasedAt: true },
-      })
-    : null;
   const metaAdsPricing = profile
-    ? { hasLearn: Boolean(metaAdsEnrollment?.learnPurchasedAt), hasRun: Boolean(metaAdsEnrollment?.runPurchasedAt) }
+    ? await entitlementsFor(profile.id, 'meta-ads')
     : undefined;
 
   return (

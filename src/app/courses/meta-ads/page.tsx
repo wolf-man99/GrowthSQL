@@ -10,6 +10,7 @@ import { Card, Progress } from '@/components/ui/primitives';
 import { CourseLogo } from '@/components/app/CourseLogo';
 import { PricingSection } from '@/components/payments/PricingSection';
 import { cn } from '@/lib/utils';
+import { entitlementsFor } from '@/lib/payments/entitlements';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,17 +23,13 @@ export default async function MetaAdsHome() {
   // Parallel is safe: DATABASE_URL carries pgbouncer=true, so Prisma's engine never
   // relies on server-side prepared statements, which is what made concurrent queries
   // hazardous under Supabase's transaction-mode pooling in the first place.
-  const [profile, done, runUnlocked, enrollment] = await Promise.all([
+  const [profile, done, runUnlocked, entitlements] = await Promise.all([
     prisma.profile.findUniqueOrThrow({ where: { id: profileId } }),
     prisma.attempt.findMany({ where: { profileId, courseId: 'meta-ads', itemType: 'lesson', passed: true }, select: { itemId: true } }),
     isRunUnlocked(profileId, 'meta-ads'),
-    prisma.enrollment.findUnique({
-      where: { profileId_courseId: { profileId, courseId: 'meta-ads' } },
-      select: { learnPurchasedAt: true, runPurchasedAt: true },
-    }),
+    entitlementsFor(profileId, 'meta-ads'),
   ]);
-  const hasLearn = Boolean(enrollment?.learnPurchasedAt);
-  const hasRun = Boolean(enrollment?.runPurchasedAt);
+  const { hasLearn, hasRun } = entitlements;
   const completed = new Set(done.map((d) => d.itemId));
   const isDone = (moduleSlug: string, slug: string) => completed.has(`${moduleSlug}/${slug}`);
   const completedCount = META_LESSONS.filter((l) => isDone(l.moduleSlug, l.slug)).length;

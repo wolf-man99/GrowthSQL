@@ -3,6 +3,7 @@ import { getProfileId } from '@/lib/auth/server';
 import { ensureEnrollment } from '@/lib/progress/persist';
 import { createRazorpayOrder, isRazorpayConfigured } from '@/lib/payments/razorpay';
 import { META_ADS_PRICING, isProduct, isProductPurchasable, toPaise } from '@/lib/payments/pricing';
+import { entitlementsFor } from '@/lib/payments/entitlements';
 
 export const runtime = 'nodejs';
 
@@ -28,12 +29,15 @@ export async function POST(req: Request) {
   }
   const product = body.product;
 
-  const { enrollment } = await ensureEnrollment(profileId, 'meta-ads');
-  const hasLearn = Boolean(enrollment.learnPurchasedAt);
-  const hasRun = Boolean(enrollment.runPurchasedAt);
+  await ensureEnrollment(profileId, 'meta-ads');
+  const { hasLearn, hasRun, isDemo } = await entitlementsFor(profileId, 'meta-ads');
   if (!isProductPurchasable(product, hasLearn, hasRun)) {
+    // The demo account owns everything by definition, so it lands here rather than
+    // in Razorpay. Worth its own wording: "you already own Learn" would read as a
+    // bug to whoever is demoing, when it is the account working as intended.
     const reason =
-      product === 'learn' ? 'You already own Learn.'
+      isDemo ? 'The demo account already has every course. Checkout is disabled on it.'
+      : product === 'learn' ? 'You already own Learn.'
       : product === 'run' ? (hasRun ? 'You already own Run.' : 'Buy Learn first - Run isn\'t sold on its own.')
       : 'You already own Learn. Buy Run instead of the bundle.';
     return Response.json({ error: reason }, { status: 400 });

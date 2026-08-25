@@ -76,7 +76,10 @@ async function main() {
     update: {},
     create: {
       email: 'demo@tiramisu.academy',
-      passwordHash: hashPassword('demopass123'),
+      // Read from the environment so production's demo password is not a literal
+      // in a git repository. The fallback is for local development only, where the
+      // database is a throwaway and the account guards nothing.
+      passwordHash: hashPassword(process.env.DEMO_PASSWORD || 'demopass123'),
       provider: 'credentials',
       displayName: 'Demo Analyst',
       avatarSeed: 'demo',
