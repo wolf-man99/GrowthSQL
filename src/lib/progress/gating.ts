@@ -1,5 +1,6 @@
 import { prisma } from '../db';
 import { META_LESSONS, metaLessonBySlug, metaLessonItemId, metaModuleBySlug } from '../content/meta-ads';
+import { GOOGLE_LESSONS, googleLessonBySlug, googleModuleBySlug } from '../content/google-ads';
 import { FREE_MODULE_COUNT } from '../payments/pricing';
 import { entitlementsFor } from '../payments/entitlements';
 
@@ -14,17 +15,36 @@ import { entitlementsFor } from '../payments/entitlements';
 type Db = Pick<typeof prisma, 'attempt'>;
 type LearnCompleteChecker = (db: Db, profileId: string) => Promise<boolean>;
 
-const LEARN_COMPLETE_CHECKERS: Record<string, LearnCompleteChecker> = {
-  'meta-ads': async (db, profileId) => {
-    if (META_LESSONS.length === 0) return false;
+/** Builds a checker from a course's lesson list. Every course's completion test is
+ *  the same shape — every lesson passed at least once — so the only per-course part
+ *  is which list to check against. */
+function allLessonsPassed(courseId: string, itemIds: string[]): LearnCompleteChecker {
+  return async (db, profileId) => {
+    if (itemIds.length === 0) return false;
     const passed = await db.attempt.findMany({
-      where: { profileId, courseId: 'meta-ads', itemType: 'lesson', passed: true },
+      where: { profileId, courseId, itemType: 'lesson', passed: true },
       select: { itemId: true },
     });
     const passedIds = new Set(passed.map((a) => a.itemId));
-    return META_LESSONS.every((l) => passedIds.has(metaLessonItemId(l)));
-  },
+    return itemIds.every((id) => passedIds.has(id));
+  };
+}
+
+const LEARN_COMPLETE_CHECKERS: Record<string, LearnCompleteChecker> = {
+  'meta-ads': allLessonsPassed('meta-ads', META_LESSONS.map(metaLessonItemId)),
+  'google-ads': allLessonsPassed('google-ads', GOOGLE_LESSONS.map((l) => `${l.moduleSlug}/${l.slug}`)),
 };
+
+/**
+ * Which courses have a Run tier at all.
+ *
+ * Deliberately its own list rather than being derived from the completion
+ * checkers, which is how it used to work. Once a second course had a Learn tier
+ * and no Run tier, deriving one from the other would have quietly advertised a
+ * simulator that does not exist. Finishing Learn and having somewhere to go next
+ * are two different facts.
+ */
+const RUN_TIER_COURSES: ReadonlySet<string> = new Set(['meta-ads']);
 
 /** True once this course has a Learn tier and this learner has finished every lesson in it. */
 export async function isLearnComplete(db: Db, profileId: string, courseId: string): Promise<boolean> {
@@ -33,9 +53,9 @@ export async function isLearnComplete(db: Db, profileId: string, courseId: strin
   return checker(db, profileId);
 }
 
-/** True for any course with a Run tier defined. Used to decide whether to show a Run section at all. */
+/** True for any course with a Run tier built. Used to decide whether to show a Run section at all. */
 export function hasRunTier(courseId: string): boolean {
-  return courseId in LEARN_COMPLETE_CHECKERS;
+  return RUN_TIER_COURSES.has(courseId);
 }
 
 /**
@@ -77,21 +97,66 @@ export async function isRunUnlocked(profileId: string, courseId: string): Promis
 }
 
 /**
+ * How a course resolves an itemId back to a module index and a real lesson.
+ *
+ * Registered per course rather than switched on inside the gate, so adding a
+ * course is a line here and nothing else. A course with no entry has no Learn
+ * paywall and is never unlockable, which is the safe default: an unknown course
+ * fails closed.
+ */
+type LessonResolver = (moduleSlug: string, lessonSlug: string) => { moduleIndex: number } | null;
+
+const LESSON_RESOLVERS: Record<string, LessonResolver> = {
+  'meta-ads': (moduleSlug, lessonSlug) => {
+    const mod = metaModuleBySlug(moduleSlug);
+    if (!mod) return null;
+    const lesson = metaLessonBySlug(lessonSlug);
+    if (!lesson || lesson.moduleSlug !== moduleSlug) return null;
+    return { moduleIndex: mod.index };
+  },
+  'google-ads': (moduleSlug, lessonSlug) => {
+    const mod = googleModuleBySlug(moduleSlug);
+    if (!mod) return null;
+    const lesson = googleLessonBySlug(lessonSlug);
+    if (!lesson || lesson.moduleSlug !== moduleSlug) return null;
+    return { moduleIndex: mod.index };
+  },
+};
+
+/**
  * The Learn paywall: modules 1..FREE_MODULE_COUNT are always playable; the rest need
  * a verified 'learn' or 'bundle' purchase (`learnPurchasedAt`). The module is read
- * straight off itemId's `{moduleSlug}/{slug}` shape (see metaLessonItemId), so this
- * works from a raw attempt POST body without re-resolving the lesson object.
+ * straight off itemId's `{moduleSlug}/{slug}` shape, so this works from a raw
+ * attempt POST body without re-resolving the lesson object.
+ *
+ * The resolver validates that itemId names a real lesson *in that module*, not just
+ * a real module slug — otherwise a fabricated itemId inside a free module records
+ * as a novel "first pass" and farms XP.
  */
-export async function isMetaLessonUnlocked(profileId: string, itemId: string): Promise<boolean> {
-  const [moduleSlug, lessonSlug] = itemId.split('/');
-  const meta = metaModuleBySlug(moduleSlug);
-  if (!meta) return false;
-  // Validate itemId names a real lesson in this module, not just a real module slug,
-  // otherwise a fabricated itemId inside a free module records as a novel "first pass."
-  const lesson = metaLessonBySlug(lessonSlug);
-  if (!lesson || lesson.moduleSlug !== moduleSlug) return false;
-  if (meta.index <= FREE_MODULE_COUNT) return true;
+export async function isLessonUnlocked(
+  profileId: string,
+  courseId: string,
+  itemId: string,
+): Promise<boolean> {
+  const resolve = LESSON_RESOLVERS[courseId];
+  if (!resolve) return false;
 
-  const { hasLearn } = await entitlementsFor(profileId, 'meta-ads');
+  const [moduleSlug, lessonSlug] = itemId.split('/');
+  const found = resolve(moduleSlug, lessonSlug);
+  if (!found) return false;
+  if (found.moduleIndex <= FREE_MODULE_COUNT) return true;
+
+  const { hasLearn } = await entitlementsFor(profileId, courseId);
   return hasLearn;
+}
+
+/** Meta Ads' paywall, kept as a named entry point for the callers that predate
+ *  multi-course gating. */
+export async function isMetaLessonUnlocked(profileId: string, itemId: string): Promise<boolean> {
+  return isLessonUnlocked(profileId, 'meta-ads', itemId);
+}
+
+/** True when this course has a Learn tier whose lessons can be gated at all. */
+export function hasLearnTier(courseId: string): boolean {
+  return courseId in LESSON_RESOLVERS;
 }

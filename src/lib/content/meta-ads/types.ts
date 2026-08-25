@@ -1,10 +1,13 @@
-import type { Block } from '../types';
+import type { CourseLesson, CourseModule, LessonCard } from '../lesson-cards';
 
 /**
- * Content model for the Meta Ads course. Unlike the SQL course (which grades real
- * queries), an ad course teaches judgement. So a lesson is a sequence of stepped
- * "cards": teaching cards interleaved with interactive checks. The learner answers to
- * advance, and finishes with XP. The same model will power Google/LinkedIn/etc.
+ * Meta Ads' slice of the shared card model.
+ *
+ * The card shapes, the interactivity rule and the prose helpers all live in
+ * ../lesson-cards, because they are the same for every paid-media course. What is
+ * genuinely Meta's own is the vocabulary of its illustrations and calculators, and
+ * that is all this file now declares. Google Ads has its own pair, so a lesson
+ * cannot reference the wrong course's diagram by accident: it is a type error.
  */
 
 export type DiagramVariant =
@@ -30,45 +33,8 @@ export type CalcVariant =
   | 'learning-budget'
   | 'frequency';
 
-export type MetaCard =
-  | { kind: 'teach'; id: string; title?: string; art?: DiagramVariant; blocks: Block[] }
-  | { kind: 'tip'; id: string; title: string; text: string }
-  | { kind: 'diagram'; id: string; variant: DiagramVariant; title: string; caption: string }
-  | { kind: 'mcq'; id: string; prompt: string; options: string[]; answer: number; explain: string }
-  | { kind: 'multi'; id: string; prompt: string; options: string[]; answers: number[]; explain: string }
-  | { kind: 'truefalse'; id: string; statement: string; isTrue: boolean; explain: string }
-  | { kind: 'scenario'; id: string; situation: string; options: { label: string; correct: boolean; feedback: string }[] }
-  | { kind: 'sort'; id: string; prompt: string; items: string[]; explain: string } // `items` already in correct order
-  | { kind: 'calc'; id: string; variant: CalcVariant; title: string; blurb: string };
+export type MetaCard = LessonCard<DiagramVariant, CalcVariant>;
+export type MetaLesson = CourseLesson<DiagramVariant, CalcVariant>;
+export type MetaModule = CourseModule<DiagramVariant, CalcVariant>;
 
-export interface MetaLesson {
-  slug: string;
-  moduleSlug: string;
-  title: string;
-  subtitle: string;
-  minutes: number;
-  xp: number;
-  objective: string;
-  cards: MetaCard[];
-}
-
-export interface MetaModule {
-  slug: string;
-  index: number;
-  title: string;
-  tagline: string;
-  emoji: string;
-  status: 'available' | 'coming-soon';
-  lessons: MetaLesson[];
-}
-
-/** True when a card requires an answer before the learner may continue. */
-export function isInteractive(card: MetaCard): boolean {
-  return ['mcq', 'multi', 'truefalse', 'scenario', 'sort'].includes(card.kind);
-}
-
-/** Reusable prose helpers so authoring reads cleanly. */
-export const p = (text: string): Block => ({ kind: 'p', text });
-export const h = (text: string): Block => ({ kind: 'h', text });
-export const list = (items: string[], ordered = false): Block => ({ kind: 'list', ordered, items });
-export const key = (text: string): Block => ({ kind: 'keyidea', text });
+export { isInteractive, p, h, list, key } from '../lesson-cards';

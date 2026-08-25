@@ -20,11 +20,12 @@
     "typecheck": "tsc --noEmit",
     "smoke": "tsx scripts/smoke.ts",
     "validate:content": "tsx scripts/validate-content.ts",
-    "check": "npm run typecheck && npm run lint && npm run smoke && npm run validate:content && npm run validate:simulator && npm run validate:missions",
+    "check": "npm run typecheck && npm run lint && npm run smoke && npm run validate:content && npm run validate:courses && npm run validate:simulator && npm run validate:missions",
     "postinstall": "prisma generate",
     "monaco": "tsx scripts/copy-monaco.ts",
     "validate:simulator": "tsx scripts/validate-simulator.ts",
-    "validate:missions": "tsx scripts/validate-missions.ts"
+    "validate:missions": "tsx scripts/validate-missions.ts",
+    "validate:courses": "tsx scripts/validate-courses.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

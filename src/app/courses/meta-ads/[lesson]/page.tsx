@@ -5,7 +5,7 @@ import { metaLessonBySlug, metaLessonItemId, nextMetaLesson } from '@/lib/conten
 import { requireProfileId } from '@/lib/auth/server';
 import { isMetaLessonUnlocked } from '@/lib/progress/gating';
 import { Button } from '@/components/ui/primitives';
-import { LessonPlayer } from '@/components/meta/LessonPlayer';
+import { MetaLessonPlayer } from '@/components/meta/MetaLessonPlayer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,5 +38,5 @@ export default async function MetaLessonPage({ params }: { params: Promise<{ les
   }
 
   const next = nextMetaLesson(slug);
-  return <LessonPlayer lesson={lesson} nextSlug={next?.slug} />;
+  return <MetaLessonPlayer lesson={lesson} nextSlug={next?.slug} />;
 }

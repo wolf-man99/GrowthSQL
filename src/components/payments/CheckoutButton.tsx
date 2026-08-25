@@ -53,10 +53,13 @@ function loadRazorpayScript(): Promise<void> {
 }
 
 export function CheckoutButton({
-  product, label, variant = 'primary', size = 'md', className,
+  product, label, courseId = 'meta-ads', variant = 'primary', size = 'md', className,
 }: {
   product: Product;
   label: string;
+  /** Which course is being bought. Defaults to Meta Ads, the only course that sold
+   *  anything when this component was written. */
+  courseId?: string;
   variant?: ButtonProps['variant'];
   size?: ButtonProps['size'];
   className?: string;
@@ -72,13 +75,13 @@ export function CheckoutButton({
       const orderRes = await fetch('/api/payments/create-order', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ product }),
+        body: JSON.stringify({ product, courseId }),
       });
       const order = await orderRes.json();
       if (!orderRes.ok) throw new Error(order.error ?? 'Could not start checkout.');
 
       track('checkout_started', {
-        courseId: 'meta-ads', product, orderId: order.orderId,
+        courseId, product, orderId: order.orderId,
         value: order.amount / 100, currency: order.currency,
       });
 
@@ -96,7 +99,7 @@ export function CheckoutButton({
         modal: {
           ondismiss: () => {
             setBusy(false);
-            track('checkout_dismissed', { courseId: 'meta-ads', product, orderId: order.orderId });
+            track('checkout_dismissed', { courseId, product, orderId: order.orderId });
           },
         },
         handler: async (response) => {
@@ -109,14 +112,14 @@ export function CheckoutButton({
             const result = await verifyRes.json();
             if (!verifyRes.ok) throw new Error(result.error ?? 'Payment verification failed.');
             track('purchase_completed', {
-              courseId: 'meta-ads', product, orderId: order.orderId,
+              courseId, product, orderId: order.orderId,
               paymentId: response.razorpay_payment_id,
               value: order.amount / 100, currency: order.currency,
             });
             router.refresh();
           } catch (e) {
             const reason = e instanceof Error ? e.message : 'unknown';
-            track('purchase_failed', { courseId: 'meta-ads', product, orderId: order.orderId, reason });
+            track('purchase_failed', { courseId, product, orderId: order.orderId, reason });
             setError(e instanceof Error ? e.message : 'Payment verification failed. Contact support with your payment ID.');
           } finally {
             setBusy(false);

@@ -1,5 +1,5 @@
 import { recordAttempt } from '@/lib/progress/persist';
-import { isMetaLessonUnlocked } from '@/lib/progress/gating';
+import { hasLearnTier, isLessonUnlocked } from '@/lib/progress/gating';
 import { getProfileId } from '@/lib/auth/server';
 
 export const runtime = 'nodejs';
@@ -34,8 +34,10 @@ export async function POST(req: Request) {
 
   // The real gate. This is the only code path that grants XP for a lesson pass, so
   // checking here (not just hiding the UI) is what actually stops a paywall bypass.
-  if (body.courseId === 'meta-ads' && body.itemType === 'lesson') {
-    const unlocked = await isMetaLessonUnlocked(profileId, body.itemId);
+  // Every course with a gated Learn tier goes through this, not just Meta Ads.
+  // A per-course `if` here is how a new course silently ships without a paywall.
+  if (body.courseId && body.itemType === 'lesson' && hasLearnTier(body.courseId)) {
+    const unlocked = await isLessonUnlocked(profileId, body.courseId, body.itemId);
     if (!unlocked) return Response.json({ error: 'Upgrade required to unlock this module.' }, { status: 402 });
   }
 

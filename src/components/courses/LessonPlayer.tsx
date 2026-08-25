@@ -6,15 +6,45 @@ import Link from 'next/link';
 import {
   ArrowRight, ArrowLeft, Check, X, Lightbulb, Sparkles, PartyPopper, Zap, Loader, RotateCcw,
 } from 'lucide-react';
-import type { MetaCard, MetaLesson } from '@/lib/content/meta-ads/types';
-import { isInteractive } from '@/lib/content/meta-ads/types';
+import type { CourseLesson, LessonCard } from '@/lib/content/lesson-cards';
+import { isInteractive } from '@/lib/content/lesson-cards';
 import { BlockRenderer } from '@/components/content/BlockRenderer';
-import { MetaDiagram } from './MetaDiagram';
-import { MetaCalculator } from './MetaCalculator';
 import { Button } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
 
-export function LessonPlayer({ lesson, nextSlug }: { lesson: MetaLesson; nextSlug?: string }) {
+/**
+ * The stepped lesson player, shared by every paid-media course.
+ *
+ * Started life inside the Meta course and was lifted out whole when Google Ads
+ * needed the same thing. Only three things ever actually differed, and all three
+ * are now parameters: which course the completion is recorded against, where
+ * "back to course" goes, and how a diagram or calculator variant is drawn.
+ *
+ * The card type is loosened to `LessonCard<string, string>` at this boundary on
+ * purpose. Each course's own content files stay strictly typed against their own
+ * diagram and calculator unions, so an invalid variant is still a compile error
+ * where it is authored — which is the place that matters. Making the player
+ * generic over both unions instead would push that same type parameter through a
+ * dozen internal components to buy nothing.
+ */
+
+export type AnyCard = LessonCard<string, string>;
+export type AnyLesson = CourseLesson<string, string>;
+
+export interface LessonPlayerProps {
+  lesson: AnyLesson;
+  nextSlug?: string;
+  /** Recorded on the attempt, so progress and gating are scoped per course. */
+  courseId: string;
+  /** Where the close button and the finish screen return to. */
+  courseHref: string;
+  renderDiagram: (variant: string) => React.ReactNode;
+  renderCalculator: (variant: string) => React.ReactNode;
+}
+
+export function LessonPlayer({
+  lesson, nextSlug, courseId, courseHref, renderDiagram, renderCalculator,
+}: LessonPlayerProps) {
   const router = useRouter();
   const [i, setI] = useState(0);
   const [answered, setAnswered] = useState<Record<string, boolean>>({});
@@ -42,7 +72,7 @@ export function LessonPlayer({ lesson, nextSlug }: { lesson: MetaLesson; nextSlu
       const res = await fetch('/api/progress/attempt', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          itemType: 'lesson', itemId: `${lesson.moduleSlug}/${lesson.slug}`, courseId: 'meta-ads',
+          itemType: 'lesson', itemId: `${lesson.moduleSlug}/${lesson.slug}`, courseId,
           passed: true, xpOverride: lesson.xp, ms: Date.now() - startedAt,
         }),
       }).then((r) => r.json());
@@ -73,10 +103,10 @@ export function LessonPlayer({ lesson, nextSlug }: { lesson: MetaLesson; nextSlu
           </div>
           {awarded === 0 && <p className="mt-3 text-xs text-[var(--text-faint)]">You’d already completed this one: no new XP, but great review.</p>}
           <div className="mt-8 flex items-center justify-center gap-3">
-            <Link href="/courses/meta-ads"><Button variant="secondary" size="lg">Back to course</Button></Link>
+            <Link href={courseHref}><Button variant="secondary" size="lg">Back to course</Button></Link>
             {nextSlug
-              ? <Button size="lg" onClick={() => router.push(`/courses/meta-ads/${nextSlug}`)}>Next lesson <ArrowRight size={16} /></Button>
-              : <Link href="/courses/meta-ads"><Button size="lg">Finish <Check size={16} /></Button></Link>}
+              ? <Button size="lg" onClick={() => router.push(`${courseHref}/${nextSlug}`)}>Next lesson <ArrowRight size={16} /></Button>
+              : <Link href={courseHref}><Button size="lg">Finish <Check size={16} /></Button></Link>}
           </div>
         </div>
       </div>
@@ -87,7 +117,7 @@ export function LessonPlayer({ lesson, nextSlug }: { lesson: MetaLesson; nextSlu
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col px-5 py-6">
       {/* Progress */}
       <div className="mb-6 flex items-center gap-3">
-        <Link href="/courses/meta-ads" className="text-[var(--text-faint)] hover:text-[var(--text)]"><X size={18} /></Link>
+        <Link href={courseHref} className="text-[var(--text-faint)] hover:text-[var(--text)]"><X size={18} /></Link>
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--surface-3)]">
           <div className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300" style={{ width: `${((i + (canContinue ? 1 : 0)) / total) * 100}%` }} />
         </div>
@@ -96,7 +126,13 @@ export function LessonPlayer({ lesson, nextSlug }: { lesson: MetaLesson; nextSlu
 
       {/* Card */}
       <div key={card.id} className="animate-fade-up flex-1">
-        <CardView card={card} answered={Boolean(answered[card.id])} onAnswer={onAnswer} />
+        <CardView
+          card={card}
+          answered={Boolean(answered[card.id])}
+          onAnswer={onAnswer}
+          renderDiagram={renderDiagram}
+          renderCalculator={renderCalculator}
+        />
       </div>
 
       {/* Controls */}
@@ -111,13 +147,21 @@ export function LessonPlayer({ lesson, nextSlug }: { lesson: MetaLesson; nextSlu
   );
 }
 
-function CardView({ card, answered, onAnswer }: { card: MetaCard; answered: boolean; onAnswer: (id: string, correct: boolean) => void }) {
+function CardView({
+  card, answered, onAnswer, renderDiagram, renderCalculator,
+}: {
+  card: AnyCard;
+  answered: boolean;
+  onAnswer: (id: string, correct: boolean) => void;
+  renderDiagram: (variant: string) => React.ReactNode;
+  renderCalculator: (variant: string) => React.ReactNode;
+}) {
   switch (card.kind) {
     case 'teach':
       return (
         <div className="space-y-4">
           {card.title && <h2 className="text-xl font-semibold tracking-tight">{card.title}</h2>}
-          {card.art && <MetaDiagram variant={card.art} />}
+          {card.art && renderDiagram(card.art)}
           <BlockRenderer blocks={card.blocks} />
         </div>
       );
@@ -125,7 +169,7 @@ function CardView({ card, answered, onAnswer }: { card: MetaCard; answered: bool
       return (
         <div className="space-y-3">
           <h2 className="text-xl font-semibold tracking-tight">{card.title}</h2>
-          <MetaDiagram variant={card.variant} />
+          {renderDiagram(card.variant)}
           <p className="text-sm text-[var(--text-muted)]">{card.caption}</p>
         </div>
       );
@@ -144,7 +188,7 @@ function CardView({ card, answered, onAnswer }: { card: MetaCard; answered: bool
         <div className="space-y-3">
           <div className="flex items-center gap-2"><Sparkles size={18} className="text-[var(--accent-text)]" /><h2 className="text-xl font-semibold tracking-tight">{card.title}</h2></div>
           <p className="text-sm text-[var(--text-muted)]">{card.blurb}</p>
-          <MetaCalculator variant={card.variant} />
+          {renderCalculator(card.variant)}
         </div>
       );
     case 'mcq':
@@ -190,7 +234,7 @@ function Choice({ prompt, options, answerIndex, explain, answered, onAnswer, lab
   );
 }
 
-function Multi({ card, answered, onAnswer }: { card: Extract<MetaCard, { kind: 'multi' }>; answered: boolean; onAnswer: (ok: boolean) => void }) {
+function Multi({ card, answered, onAnswer }: { card: Extract<AnyCard, { kind: 'multi' }>; answered: boolean; onAnswer: (ok: boolean) => void }) {
   const [sel, setSel] = useState<Set<number>>(new Set());
   const submit = () => {
     if (answered) return;
@@ -222,7 +266,7 @@ function Multi({ card, answered, onAnswer }: { card: Extract<MetaCard, { kind: '
   );
 }
 
-function Scenario({ card, answered, onAnswer }: { card: Extract<MetaCard, { kind: 'scenario' }>; answered: boolean; onAnswer: (ok: boolean) => void }) {
+function Scenario({ card, answered, onAnswer }: { card: Extract<AnyCard, { kind: 'scenario' }>; answered: boolean; onAnswer: (ok: boolean) => void }) {
   const [picked, setPicked] = useState<number | null>(null);
   const choose = (idx: number) => { if (answered) return; setPicked(idx); onAnswer(card.options[idx].correct); };
   return (
@@ -253,7 +297,7 @@ function Scenario({ card, answered, onAnswer }: { card: Extract<MetaCard, { kind
   );
 }
 
-function Sort({ card, answered, onAnswer }: { card: Extract<MetaCard, { kind: 'sort' }>; answered: boolean; onAnswer: (ok: boolean) => void }) {
+function Sort({ card, answered, onAnswer }: { card: Extract<AnyCard, { kind: 'sort' }>; answered: boolean; onAnswer: (ok: boolean) => void }) {
   const [order, setOrder] = useState<string[]>(() => [...card.items].sort(() => Math.random() - 0.5));
   const move = (i: number, d: number) => { if (answered) return; const j = i + d; if (j < 0 || j >= order.length) return; setOrder((o) => { const n = [...o]; [n[i], n[j]] = [n[j], n[i]]; return n; }); };
   const submit = () => { if (answered) return; onAnswer(order.join('|') === card.items.join('|')); };
