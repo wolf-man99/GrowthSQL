@@ -20,6 +20,10 @@ const RIVAL_NAMES: [string, string][] = [
 
 const TITLES = ['Junior Analyst', 'Analyst', 'Growth Analyst', 'Senior Analyst', 'Metrics Fluent'];
 
+/** Kept in step with scripts/make-demo-account.ts, which writes the same row from
+ *  SQL for environments where seeding cannot open a Postgres connection. */
+const DEMO_EMAIL = process.env.DEMO_EMAIL || 'demo@tiramisu.com';
+
 function mulberry32(seed: number) {
   return () => {
     seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
@@ -69,13 +73,13 @@ async function main() {
   // Drop any earlier demo row first: it holds the same referralCode, so a rename
   // of the demo email would otherwise collide on that unique column.
   await prisma.profile.deleteMany({
-    where: { isDemo: true, email: { not: 'demo@tiramisu.academy' } },
+    where: { isDemo: true, email: { not: DEMO_EMAIL } },
   });
   await prisma.profile.upsert({
-    where: { email: 'demo@tiramisu.academy' },
+    where: { email: DEMO_EMAIL },
     update: {},
     create: {
-      email: 'demo@tiramisu.academy',
+      email: DEMO_EMAIL,
       // Read from the environment so production's demo password is not a literal
       // in a git repository. The fallback is for local development only, where the
       // database is a throwaway and the account guards nothing.
@@ -95,7 +99,7 @@ async function main() {
 
   const cards = await prisma.flashcard.count();
   const rivals = await prisma.rival.count();
-  console.log(`Seeded ${cards} flashcards, ${rivals} rivals, and the demo account (demo@tiramisu.academy / demopass123).`);
+  console.log(`Seeded ${cards} flashcards, ${rivals} rivals, and the demo account (${DEMO_EMAIL}).`);
 }
 
 main()
