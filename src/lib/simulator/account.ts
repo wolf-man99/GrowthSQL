@@ -23,6 +23,8 @@ import {
   type SimState,
 } from './engine';
 import { resolveCreative } from './creatives';
+import { missionById } from './missions';
+import type { ScheduledEvent } from './missions/types';
 
 /** Rollup key used for the account-level row in SimDay. */
 export const ACCOUNT_ENTITY = '__account__';
@@ -86,6 +88,30 @@ export async function createAccount(input: {
 export interface AdvanceOutcome {
   account: SimAccountRecord;
   results: DayResult[];
+  /** Events that fired during this advance, for the day log. */
+  events: ScheduledEvent[];
+}
+
+/**
+ * Applies a mission event to the account's conditions.
+ *
+ * Events change the world, never the learner's settings. A broken checkout drops
+ * conversion rate across every campaign at once and leaves the ads untouched, which
+ * is precisely what makes it diagnosable: the learner has to notice that CTR did
+ * not move. Mutating their ad sets instead would just look like sabotage.
+ */
+function applyEvent(state: SimState, event: ScheduledEvent): void {
+  switch (event.kind) {
+    case 'landingPageQuality':
+      state.conditions.landingPageQuality *= event.factor;
+      break;
+    case 'marketPressure':
+      state.conditions.marketPressure *= event.factor;
+      break;
+    case 'aov':
+      state.conditions.aov = Math.round(state.conditions.aov * event.factor);
+      break;
+  }
 }
 
 /**
@@ -103,12 +129,28 @@ export async function advanceDays(
   const clamped = Math.max(1, Math.min(30, Math.floor(days)));
   const opts = { seed: account.seed, resolveCreative };
 
+  const mission = account.missionId ? missionById(account.missionId) : undefined;
+
   let state = account.state;
   const results: DayResult[] = [];
+  const fired: ScheduledEvent[] = [];
   for (let i = 0; i < clamped; i++) {
+    // Events fire at the start of the day they are scheduled for, so the day the
+    // learner is about to watch is the first one that shows the effect.
+    for (const event of mission?.events ?? []) {
+      if (event.day === state.day) {
+        state = structuredClone(state);
+        applyEvent(state, event);
+        fired.push(event);
+      }
+    }
     const step = tick(state, opts);
     state = step.state;
     results.push(step.result);
+
+    // A mission stops at its own horizon rather than running on: grading a 21-day
+    // brief over 40 days would measure a different exercise.
+    if (mission && state.day >= mission.durationDays) break;
   }
 
   const rows = results.flatMap((r) => dayRowsFor(account.id, r));
@@ -121,7 +163,7 @@ export async function advanceDays(
     prisma.simDay.createMany({ data: rows, skipDuplicates: true }),
   ]);
 
-  return { account: toRecord(updated), results };
+  return { account: toRecord(updated), results, events: fired };
 }
 
 /**
