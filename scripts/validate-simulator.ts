@@ -16,7 +16,7 @@
  * Run: npx tsx scripts/validate-simulator.ts
  */
 
-import { applyEdit, previewReset, run, tick, type DayResult } from '../src/lib/simulator/engine';
+import { applyEdit, MODEL, previewReset, run, tick, type DayResult } from '../src/lib/simulator/engine';
 import { resolveCreative } from '../src/lib/simulator/creatives';
 import { ad, adSet, audience, campaign, state } from '../src/lib/simulator/factory';
 import { buildSandboxAccount } from '../src/lib/simulator/scenarios/sandbox';
@@ -483,13 +483,50 @@ section('Sandbox — the starting account contains its intended lessons');
   const early = out.results.slice(0, 5);
   const late = out.results.slice(-5);
 
-  // Note on what is deliberately absent: the prospecting ad sets do NOT demonstrate
-  // creative fatigue, and the sandbox does not claim they do. At this account's
-  // realistic scale (₹2,400/day against a 380k pool) six weeks buys roughly 1.5x
-  // frequency, which is the onset threshold, not past it. Manufacturing a burn here
-  // would need either an implausibly tiny audience or an implausibly large budget.
-  // Fatigue is taught instead by `aud-cart` saturating above, and properly by the
-  // dedicated creative mission, where the conditions can be set to suit the lesson.
+  // The interest stack's single hard-sell creative should visibly burn out, and the
+  // sandbox's docblock says so, so it has to be true. Checked as the whole arc
+  // rather than one number: a creative that merely got worse is not the lesson —
+  // the lesson is one that *worked first*, which is why buyers keep being fooled.
+  const interestWeek = (from: number, to: number) => {
+    let impressions = 0, clicks = 0, spend = 0, revenue = 0, purchases = 0;
+    for (const r of out.results.slice(from, to)) {
+      for (const a of r.adSets) {
+        if (a.adSetId !== 'as-interest') continue;
+        impressions += a.impressions; clicks += a.linkClicks;
+        spend += a.spend; revenue += a.revenue; purchases += a.purchases;
+      }
+    }
+    return {
+      ctr: (clicks / Math.max(1, impressions)) * 100,
+      roas: revenue / Math.max(1, spend),
+      cpa: purchases > 0 ? spend / purchases : Infinity,
+    };
+  };
+  const w1 = interestWeek(0, 7), w2 = interestWeek(7, 14), w6 = interestWeek(35, 42);
+
+  const interest = byId.get('as-interest');
+  const offer = out.state.ads.find((a) => a.id === 'ad-int-offer');
+  const offerFreq = interest && offer && interest.runtime.reach > 0
+    ? offer.runtime.impressions / interest.runtime.reach : 0;
+
+  check('the lone hard-sell creative saturates its pool', offerFreq > 2.5,
+    `ad-int-offer at ${offerFreq.toFixed(2)}x frequency after six weeks`);
+  check('and its click-through collapses with it', w6.ctr < w1.ctr * 0.7,
+    `CTR ${w1.ctr.toFixed(2)}% -> ${w6.ctr.toFixed(2)}% (${(((w6.ctr - w1.ctr) / w1.ctr) * 100).toFixed(0)}%)`);
+  check('the burn costs real money, not just clicks', w6.cpa > w1.cpa * 1.4,
+    `CPA ₹${w1.cpa.toFixed(0)} -> ₹${w6.cpa.toFixed(0)}`);
+  check('it works before it fails, which is what makes it a trap',
+    w2.roas > w1.roas && w2.roas > 2 && w6.roas < 1.3,
+    `ad set ROAS ${w1.roas.toFixed(2)}x -> ${w2.roas.toFixed(2)}x (peak) -> ${w6.roas.toFixed(2)}x`);
+
+  // The two-creative lookalike next door should NOT burn, so the learner has a
+  // controlled comparison rather than an account where everything is dying.
+  const lookalike = byId.get('as-lookalike');
+  const lalFreq = lookalike && lookalike.runtime.reach > 0
+    ? lookalike.runtime.impressions / lookalike.runtime.reach : 0;
+  check('the ad set beside it does not, so the difference is diagnosable',
+    lalFreq < MODEL.fatigueOnsetFrequency,
+    `as-lookalike at ${lalFreq.toFixed(2)}x frequency, below the ${MODEL.fatigueOnsetFrequency}x onset`);
 
   // CBO should already be concentrating inside the Advantage+ campaign.
   const advYoung = byId.get('as-adv-young')?.runtime.spend ?? 0;

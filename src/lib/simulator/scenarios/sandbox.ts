@@ -13,17 +13,20 @@
  *     so it sits in Learning Limited until someone consolidates it (module 4.2).
  *   - `aud-cart` is small enough to saturate hard, passing 5x frequency inside six
  *     weeks, so the account's best-converting audience quietly wears out (6.1).
+ *   - `as-interest` runs one hard-sell creative at a tight interest stack. It peaks
+ *     in week two and then burns: frequency past 3x, CTR roughly halved, CPA up
+ *     around 60%, and an ad set that was the account's star finishing below 1x
+ *     ROAS (3.4 and 6.1).
  *   - both CBO campaigns concentrate on an arbitrary early front-runner, leaving
  *     the sibling ad set effectively untested (4.1).
- *   - left completely alone for six weeks, account ROAS decays from roughly 3.0x
- *     to 2.7x, so doing nothing is visibly the wrong move.
+ *   - left completely alone for six weeks, account ROAS decays from roughly 2.8x
+ *     to 2.5x, so doing nothing is visibly the wrong move.
  *
- * Note what is deliberately *not* claimed: the prospecting ad sets do not burn out
- * their creative. At this account's realistic scale, six weeks of spend against a
- * 380k pool reaches roughly 1.5x frequency, which is the fatigue onset rather than
- * past it, and forcing a burn would need an implausibly small audience or an
- * implausibly large budget. Creative fatigue shows up here through the small
- * retargeting pool, and is taught properly by the dedicated creative mission.
+ * The burn is emergent, not scripted: nothing here sets a decline. It falls out of
+ * a small pool saturating, one creative taking every impression because it is the
+ * only ad in its ad set, and that creative having the highest `fatigueRate` in the
+ * library. Change any one of those three and the ad set stops dying, which is
+ * exactly the diagnosis a learner has to arrive at.
  */
 
 import {
@@ -42,11 +45,14 @@ export function buildSandboxAccount(): SimState {
       audience('aud-broad-older', 'Advantage+ audience · 35–54', 3_100_000, 0.05, {
         spec: { ageMin: 35, ageMax: 54, genders: 'all', geos: ['IN'], interests: [] },
       }),
-      // A genuinely tight interest stack, not a broad category. Narrow enough that
-      // sustained spend against it saturates within weeks, which is what makes the
-      // fatiguing offer creative sitting on it a lesson rather than a decoration.
-      audience('aud-interest', 'Streetwear & sneakerhead interests', 380_000, 0.12, {
-        spec: { ageMin: 18, ageMax: 34, genders: 'all', geos: ['IN'], interests: ['Streetwear', 'Sneakers', 'Hypebeast'] },
+      // Three interests stacked *and* narrowed to the metros, which is how a real
+      // interest stack ends up under 100k rather than in the millions. That size is
+      // load-bearing: ₹2,400/day against it saturates the pool inside a fortnight,
+      // and it is the saturation that makes the single hard-sell creative sitting on
+      // it burn instead of merely age. Warmer than broad, because people who follow
+      // sneaker and streetwear accounts genuinely convert better than a cold pool.
+      audience('aud-interest', 'Streetwear & sneakerhead interests · metros', 95_000, 0.22, {
+        spec: { ageMin: 18, ageMax: 34, genders: 'all', geos: ['Mumbai', 'Delhi', 'Bengaluru'], interests: ['Streetwear', 'Sneakers', 'Hypebeast'] },
       }),
       audience('aud-lookalike', 'Fashion lookalike 3%', 640_000, 0.25, {
         type: 'lookalike',
@@ -106,11 +112,15 @@ export function buildSandboxAccount(): SimState {
       ad('ad-adv-carousel', 'as-adv-young', 'Carousel · bestsellers', 'cr-carousel-best', { format: 'carousel' }),
       ad('ad-adv-founder', 'as-adv-older', 'Founder story', 'cr-founder', { format: 'video' }),
 
-      // The trap: a hard-sell offer creative carrying a whole ad set. It will
-      // out-perform everything for about a week and then fall off a cliff.
+      // The trap: one hard-sell offer creative, alone in its ad set, so every
+      // impression the tight interest pool absorbs is an impression of this ad.
+      // It peaks in week two and is unprofitable by week six.
       ad('ad-int-offer', 'as-interest', 'Offer · 20% off', 'cr-offer-slab', { format: 'image' }),
-      ad('ad-int-switch', 'as-interest', 'UGC · why I switched', 'cr-ugc-switch', { format: 'video' }),
+      // The contrast, deliberately parked one ad set over: the lookalike runs two
+      // creatives and neither carries enough frequency to tire. A learner comparing
+      // the two has the answer to the interest stack in front of them already.
       ad('ad-lal-lookbook', 'as-lookalike', 'Static · lookbook grid', 'cr-lookbook', { format: 'image' }),
+      ad('ad-lal-switch', 'as-lookalike', 'UGC · why I switched', 'cr-ugc-switch', { format: 'video' }),
 
       ad('ad-cart-nudge', 'as-cart', 'Still thinking it over?', 'cr-retarget-nudge', { format: 'image' }),
       ad('ad-ig-collection', 'as-ig', 'Collection · shop the look', 'cr-collection', { format: 'collection' }),
