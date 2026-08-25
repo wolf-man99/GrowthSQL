@@ -135,6 +135,11 @@ export async function advanceDays(
   const results: DayResult[] = [];
   const fired: ScheduledEvent[] = [];
   for (let i = 0; i < clamped; i++) {
+    // A mission stops at its own horizon. Checked before the tick, not after:
+    // checking after would let the clock run one day past the brief, and the grade
+    // would then measure a slightly different exercise than the one set.
+    if (mission && state.day >= mission.durationDays) break;
+
     // Events fire at the start of the day they are scheduled for, so the day the
     // learner is about to watch is the first one that shows the effect.
     for (const event of mission?.events ?? []) {
@@ -147,10 +152,6 @@ export async function advanceDays(
     const step = tick(state, opts);
     state = step.state;
     results.push(step.result);
-
-    // A mission stops at its own horizon rather than running on: grading a 21-day
-    // brief over 40 days would measure a different exercise.
-    if (mission && state.day >= mission.durationDays) break;
   }
 
   const rows = results.flatMap((r) => dayRowsFor(account.id, r));

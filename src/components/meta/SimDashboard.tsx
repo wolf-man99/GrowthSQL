@@ -62,6 +62,10 @@ export interface SimDashboardProps {
   totals: { spend: number; revenue: number; purchases: number; impressions: number; linkClicks: number; reach: number };
   rangeKey: string;
   rangeLabel: string;
+  /** A mission's horizon. Advancing stops here so a run cannot overshoot its brief. */
+  maxDay?: number;
+  /** A graded or abandoned account is a record, not a workspace. */
+  readOnly?: boolean;
 }
 
 export function SimDashboard(props: SimDashboardProps) {
@@ -216,6 +220,10 @@ export function SimDashboard(props: SimDashboardProps) {
   const roas = props.totals.spend > 0 ? props.totals.revenue / props.totals.spend : 0;
   const costPerResult = props.totals.purchases > 0 ? Math.round(props.totals.spend / props.totals.purchases) : 0;
   const working = busy || pending;
+  const atHorizon = props.maxDay !== undefined && props.currentDay >= props.maxDay;
+  const frozen = Boolean(props.readOnly) || atHorizon;
+  /** Never advance past a mission's horizon, so the grade measures the brief. */
+  const daysLeft = props.maxDay !== undefined ? Math.max(0, props.maxDay - props.currentDay) : Infinity;
 
   function setRange(key: string) {
     setRangeOpen(false);
@@ -256,19 +264,30 @@ export function SimDashboard(props: SimDashboardProps) {
           <div>
             <div className="mb-day-label">Day {props.currentDay}</div>
             <div className="mb-day-sub">
-              {props.currentDay === 0
-                ? 'Nothing has run yet. Advance the clock to see delivery.'
-                : `${props.currentDay} day${props.currentDay === 1 ? '' : 's'} of delivery so far`}
+              {props.readOnly
+                ? 'This run is closed. The numbers below are the record of it.'
+                : atHorizon
+                  ? 'The clock has run out for this mission.'
+                  : props.currentDay === 0
+                    ? 'Nothing has run yet. Advance the clock to see delivery.'
+                    : `${props.currentDay} day${props.currentDay === 1 ? '' : 's'} of delivery so far`}
             </div>
           </div>
-          <div className="mb-daybar-actions">
-            <button type="button" className="mb-btn" disabled={working} onClick={() => advance(1)}>
-              <Play size={12} /> Advance a day
-            </button>
-            <button type="button" className="mb-btn-primary" disabled={working} onClick={() => advance(7)}>
-              Advance a week
-            </button>
-          </div>
+          {!frozen && (
+            <div className="mb-daybar-actions">
+              <button type="button" className="mb-btn" disabled={working} onClick={() => advance(1)}>
+                <Play size={12} /> Advance a day
+              </button>
+              <button
+                type="button"
+                className="mb-btn-primary"
+                disabled={working}
+                onClick={() => advance(Math.min(7, daysLeft))}
+              >
+                {daysLeft < 7 ? `Advance ${daysLeft} day${daysLeft === 1 ? '' : 's'}` : 'Advance a week'}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="mb-topbar">
@@ -329,14 +348,16 @@ export function SimDashboard(props: SimDashboardProps) {
                   ))}
                 </div>
                 <div className="mb-actions">
-                  <button
-                    type="button"
-                    className="mb-btn-primary"
-                    disabled={working}
-                    onClick={() => setCreating(nav === 'campaigns' ? 'campaign' : nav === 'adsets' ? 'adset' : 'ad')}
-                  >
-                    <Plus size={13} /> Create
-                  </button>
+                  {!frozen && (
+                    <button
+                      type="button"
+                      className="mb-btn-primary"
+                      disabled={working}
+                      onClick={() => setCreating(nav === 'campaigns' ? 'campaign' : nav === 'adsets' ? 'adset' : 'ad')}
+                    >
+                      <Plus size={13} /> Create
+                    </button>
+                  )}
                   <div className="mb-cols-wrap">
                     <button type="button" className="mb-toolbtn" onClick={() => { setRangeOpen(false); setColumnsOpen((o) => !o); }}>
                       <SlidersHorizontal size={13} /> Columns
@@ -426,8 +447,8 @@ export function SimDashboard(props: SimDashboardProps) {
                             key={row.id}
                             row={row}
                             columns={visibleColumns}
-                            onToggle={toggleStatus(nav === 'campaigns' ? 'campaign' : nav === 'adsets' ? 'adset' : 'ad')}
-                            editableColumns={canEditBudget && nav !== 'ads' ? EDITABLE_BUDGET : undefined}
+                            onToggle={frozen ? undefined : toggleStatus(nav === 'campaigns' ? 'campaign' : nav === 'adsets' ? 'adset' : 'ad')}
+                            editableColumns={!frozen && canEditBudget && nav !== 'ads' ? EDITABLE_BUDGET : undefined}
                             onEditCell={(columnId, r) => {
                               if (columnId !== 'budget') return;
                               setEditing({

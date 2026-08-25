@@ -12,6 +12,7 @@ import { ad, adSet, audience, campaign, state, DEFAULT_CONDITIONS } from '../fac
 import type { Mission } from './types';
 
 export * from './types';
+export type { MissionStatus, MissionProgress } from './progress';
 export { gradeMission, describeTarget, formatActual } from './grade';
 
 export const MISSIONS: Mission[] = [
