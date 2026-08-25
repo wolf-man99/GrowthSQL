@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { CircleCheck, Loader } from 'lucide-react';
 import { SECTION_ORDER } from '@/lib/content/types';
 import { Button } from '@/components/ui/primitives';
+import { track } from '@/lib/analytics/events';
 
 /** Marks every section of a day complete, the simple "I finished this day" control. */
 export function LessonComplete({ day, done }: { day: number; done: boolean }) {
@@ -22,6 +23,7 @@ export function LessonComplete({ day, done }: { day: number; done: boolean }) {
         }),
       ),
     );
+    track('lesson_day_completed', { day });
     setComplete(true);
     setSaving(false);
     router.refresh();

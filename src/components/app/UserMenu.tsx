@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogOut, Settings, ChevronDown, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { identify, resetIdentity } from '@/lib/analytics/events';
 
-interface Me { displayName: string; email: string | null; image: string | null; avatarSeed: string }
+interface Me { id: string; displayName: string; email: string | null; image: string | null; avatarSeed: string }
 
 export function UserMenu() {
   const router = useRouter();
@@ -14,7 +15,12 @@ export function UserMenu() {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch('/api/auth/me').then((r) => r.json()).then((d) => setMe(d.user)).catch(() => {});
+    fetch('/api/auth/me').then((r) => r.json()).then((d) => {
+      setMe(d.user);
+      // The one place in the app chrome that already knows who is signed in, so
+      // identifying here costs no extra request.
+      if (d.user?.id) identify(d.user.id);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -25,6 +31,7 @@ export function UserMenu() {
 
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
+    resetIdentity();
     router.push('/');
     router.refresh();
   };

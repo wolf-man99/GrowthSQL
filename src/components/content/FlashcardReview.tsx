@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Layers, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { Button, Card } from '@/components/ui/primitives';
+import { track } from '@/lib/analytics/events';
 
 interface Card { id: string; deck: string; front: string; back: string; concept: string }
 
@@ -20,6 +21,7 @@ export function FlashcardReview() {
     if (!cards) return;
     const card = cards[i];
     await fetch('/api/flashcards', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cardId: card.id, grade }) });
+    track('flashcard_reviewed', { deck: card.deck, concept: card.concept, grade });
     setReviewed((r) => r + 1);
     if (i + 1 < cards.length) { setI(i + 1); setFlipped(false); }
     else { setCards([]); }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Share2, Check, Copy, Send, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { track } from '@/lib/analytics/events';
 
 /**
  * Share-to-friends: copies a personal invite link (with the learner's referral code)
@@ -29,7 +30,12 @@ export function ShareButton() {
   }, []);
 
   const copy = async () => {
-    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { /* ignore */ }
+    try {
+      await navigator.clipboard.writeText(link);
+      track('invite_link_copied');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch { /* ignore */ }
   };
 
   const text = encodeURIComponent("I'm learning SQL for marketing on Tiramisu. Come compete with me! 🚀");

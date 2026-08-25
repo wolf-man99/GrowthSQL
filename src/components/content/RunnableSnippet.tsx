@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Play, Loader, ChevronDown, Clock } from 'lucide-react';
 import { ResultsGrid } from '@/components/workspace/ResultsGrid';
 import { cn, formatMs } from '@/lib/utils';
+import { track } from '@/lib/analytics/events';
 
 /** A read-only SQL block with an inline Run button and collapsible results. */
 export function RunnableSnippet({ code, caption }: { code: string; caption?: string }) {
@@ -15,6 +16,7 @@ export function RunnableSnippet({ code, caption }: { code: string; caption?: str
     setLoading(true); setOpen(true);
     try {
       const r = await fetch('/api/sql/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sql: code }) }).then((x) => x.json());
+      track('sql_query_executed', { surface: 'snippet', ok: Boolean(r.ok) });
       setRes(r.ok ? r : { columns: [], rows: [], rowCount: 0, ms: 0, error: r.error });
     } catch { setRes({ columns: [], rows: [], rowCount: 0, ms: 0, error: 'Engine unreachable.' }); }
     setLoading(false);

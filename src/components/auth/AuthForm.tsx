@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/primitives';
 import { COURSES } from '@/lib/courses/registry';
 import { LEARNING_GOALS, HEARD_FROM_OPTIONS } from '@/lib/auth/onboarding';
 import { cn } from '@/lib/utils';
+import { track } from '@/lib/analytics/events';
 
 const ERRORS: Record<string, string> = {
   google_unconfigured: 'Google sign-in isn’t configured on this deployment yet. Use email and password.',
@@ -64,7 +65,10 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       }).then((r) => r.json());
-      if (res.ok) { router.push(next); router.refresh(); }
+      if (res.ok) {
+        track('account_authenticated', { method: mode });
+        router.push(next); router.refresh();
+      }
       else { setError(res.error ?? 'Please check your details.'); if (mode === 'signup') setStep(1); }
     } catch { setError('Network error. Please try again.'); }
     setLoading(false);

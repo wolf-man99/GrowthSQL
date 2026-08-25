@@ -10,6 +10,7 @@ import { Button, DifficultyPill, Chip } from '@/components/ui/primitives';
 import { ResultsGrid } from './ResultsGrid';
 import { SchemaPanel } from './SchemaPanel';
 import { cn, formatMs } from '@/lib/utils';
+import { track } from '@/lib/analytics/events';
 import type { CompareResult } from '@/lib/grading/compare';
 import type { Analysis } from '@/lib/coach/analyze';
 
@@ -62,6 +63,7 @@ export function QueryWorkspace({
     setRunning(true); setError(null); setPassed(null); setCoach(null); setMentor(null); setAward(null);
     try {
       const res = await fetch('/api/sql/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sql }) }).then((r) => r.json());
+      track('sql_query_executed', { surface: 'workspace', ok: Boolean(res.ok) });
       if (res.ok) { setResult(res); setTab('results'); }
       else setError({ message: res.error, hint: res.hint });
     } catch { setError({ message: 'Could not reach the query engine.' }); }
@@ -131,7 +133,13 @@ export function QueryWorkspace({
                   </div>
                 ))}
                 {revealed < exercise.hints.length && (
-                  <button onClick={() => setRevealed((r) => r + 1)} className="flex items-center gap-1.5 text-xs font-medium text-[var(--warn)] hover:underline">
+                  <button
+                    onClick={() => {
+                      track('exercise_hint_revealed', { exerciseId: exercise.id, index: revealed + 1 });
+                      setRevealed((r) => r + 1);
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-medium text-[var(--warn)] hover:underline"
+                  >
                     <Lightbulb size={13} /> Reveal hint {revealed + 1} of {exercise.hints.length}
                   </button>
                 )}
