@@ -16,7 +16,10 @@
  * Run: npx tsx scripts/validate-simulator.ts
  */
 
-import { applyEdit, MODEL, previewReset, run, tick, type DayResult } from '../src/lib/simulator/engine';
+import {
+  applyEdit, MODEL, mergeSegments, previewReset, run, tick,
+  PLACEMENTS, SEGMENT_DIMENSIONS, type DayResult,
+} from '../src/lib/simulator/engine';
 import { resolveCreative } from '../src/lib/simulator/creatives';
 import { ad, adSet, audience, campaign, state } from '../src/lib/simulator/factory';
 import { buildSandboxAccount } from '../src/lib/simulator/scenarios/sandbox';
@@ -448,6 +451,96 @@ section('Module 7.2 — a duplicate is a new ad set, not a free stabilised one')
     'a duplicate has to earn its own stability');
   check('the copy carries its own ad', dup.state.ads.some((a) => a.id === 'ad2' && a.adSetId === 'as2'),
     'ads are duplicated alongside the ad set');
+}
+
+// ──────────────────────────────────────────── 10b. breakdowns are measured ──
+//
+// The dashboard tells a learner that every age band, gender and placement buys at
+// its own price and converts at its own rate, and that the three splits are the
+// same delivery so they all add back to the total. Both halves are claims about
+// the engine, so both are checked here. A breakdown that quietly stopped
+// reconciling would teach someone to distrust numbers that were correct.
+
+section('Breakdowns — the same delivery, sliced, and it adds up');
+{
+  const s = state({
+    audiences: [audience('aud', 'Broad', 2_000_000, 0.2, {
+      spec: { ageMin: 18, ageMax: 65, genders: 'all', geos: ['IN'], interests: [] },
+    })],
+    campaigns: [campaign('c1', 'Prospecting')],
+    adSets: [adSet('as1', 'c1', 'Broad', 'aud', { dailyBudget: 6_000 })],
+    ads: [ad('ad1', 'as1', 'UGC', 'cr-ugc-street', { format: 'video' })],
+  });
+  const { results } = run(s, 14, OPTS);
+
+  // Reconciliation, on every day and every dimension, not just in aggregate.
+  let mismatches = 0;
+  for (const r of results) {
+    for (const a of r.adSets) {
+      for (const dim of SEGMENT_DIMENSIONS) {
+        const rows = a.segments.filter((x) => x.dimension === dim);
+        if (rows.length === 0) continue;
+        const total = (f: (x: (typeof rows)[number]) => number) => rows.reduce((n, x) => n + f(x), 0);
+        if (total((x) => x.spend) !== a.spend) mismatches++;
+        if (total((x) => x.impressions) !== a.impressions) mismatches++;
+        if (total((x) => x.linkClicks) !== a.linkClicks) mismatches++;
+        if (total((x) => x.purchases) !== a.purchases) mismatches++;
+        if (total((x) => x.revenue) !== a.revenue) mismatches++;
+      }
+    }
+  }
+  check('every dimension sums back to its ad set, every day', mismatches === 0,
+    `${results.length} days x ${SEGMENT_DIMENSIONS.length} dimensions, ${mismatches} mismatched totals`);
+
+  // Rates genuinely differ, which is the whole reason a breakdown is worth reading.
+  const merged = mergeSegments(results.map((r) => r.adSets[0].segments));
+  const seg = (key: string) => merged.find((x) => x.segment === key)!;
+  const segCpm = (key: string) => (seg(key).spend / Math.max(1, seg(key).impressions)) * 1000;
+  const segCvr = (key: string) =>
+    (seg(key).purchases / Math.max(1, seg(key).linkClicks)) * 100;
+  const segRoas = (key: string) => seg(key).revenue / Math.max(1, seg(key).spend);
+
+  check('Audience Network is the cheapest inventory in the account',
+    segCpm('Audience Network') < segCpm('Instagram Feed') * 0.6,
+    `₹${segCpm('Audience Network').toFixed(0)} vs ₹${segCpm('Instagram Feed').toFixed(0)} on Instagram Feed`);
+  // The cheap CPM is not free money: netted against the conversion rate it is the
+  // worst return in the account, which is the entire reason to open this tab.
+  const placementRoas = PLACEMENTS.map((p) => segRoas(p));
+  check('and the worst value in the account, once its CPM is netted off',
+    segRoas('Audience Network') === Math.min(...placementRoas)
+    && segRoas('Audience Network') < segRoas('Facebook Feed') * 0.6,
+    `${segRoas('Audience Network').toFixed(2)}x, lowest of ${PLACEMENTS.length} placements, ` +
+    `against ${segRoas('Facebook Feed').toFixed(2)}x on Facebook Feed`);
+  check('older bands cost more per thousand', segCpm('45–54') > segCpm('18–24') * 1.3,
+    `₹${segCpm('45–54').toFixed(0)} vs ₹${segCpm('18–24').toFixed(0)}`);
+  check('and convert better, so CPM alone reads backwards',
+    segCvr('45–54') > segCvr('18–24') * 1.3,
+    `${segCvr('45–54').toFixed(2)}% vs ${segCvr('18–24').toFixed(2)}%`);
+
+  // Targeting has to actually shape the breakdown, or it is decoration.
+  const narrow = structuredClone(s);
+  narrow.audiences[0].spec = { ageMin: 18, ageMax: 34, genders: 'women', geos: ['IN'], interests: [] };
+  const narrowSegments = mergeSegments(run(narrow, 7, OPTS).results.map((r) => r.adSets[0].segments));
+  check('an excluded age band produces no rows at all',
+    !narrowSegments.some((x) => ['35–44', '45–54', '55+'].includes(x.segment)),
+    `18-34 targeting shows ${narrowSegments.filter((x) => x.dimension === 'age').map((x) => x.segment).join(', ')}`);
+  check('and an excluded gender likewise',
+    !narrowSegments.some((x) => x.segment === 'Men'),
+    'women-only targeting shows only the Women row');
+
+  // The placement lever has to be worth pulling, in both directions.
+  const manual = structuredClone(s);
+  manual.adSets[0].advantagePlacements = false;
+  const manualRun = run(manual, 14, OPTS).results;
+  const advRun = results;
+  const manualSegments = mergeSegments(manualRun.map((r) => r.adSets[0].segments));
+  check('dropping Advantage+ placements drops Audience Network with it',
+    !manualSegments.some((x) => x.segment === 'Audience Network'),
+    `manual placements deliver on ${manualSegments.filter((x) => x.dimension === 'placement').length} placements`);
+  check('which costs more per thousand', cpmOf(manualRun) > cpmOf(advRun) * 1.05,
+    `₹${cpmOf(manualRun).toFixed(0)} manual vs ₹${cpmOf(advRun).toFixed(0)} on Advantage+`);
+  check('and is worth it, because the traffic converts', cvrOf(manualRun) > cvrOf(advRun) * 1.05,
+    `${cvrOf(manualRun).toFixed(2)}% manual vs ${cvrOf(advRun).toFixed(2)}% on Advantage+`);
 }
 
 // ────────────────────────────────────────── 11. the sandbox account's design ──

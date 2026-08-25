@@ -154,7 +154,7 @@ export const MISSIONS: Mission[] = [
     xp: 140,
     objectives: [
       { id: 'ctr', label: 'Finish with CTR recovered', metric: 'accountCtr', op: 'gte', value: 1.35, when: 'end', window: 7 },
-      { id: 'roas', label: 'Hold ROAS through the transition', metric: 'roas', op: 'gte', value: 2.2, when: 'end', window: 7 },
+      { id: 'roas', label: 'Hold ROAS through the transition', metric: 'roas', op: 'gte', value: 2.0, when: 'end', window: 7 },
     ],
     events: [],
     debrief:
@@ -348,14 +348,14 @@ export const MISSIONS: Mission[] = [
       'an ad set too poorly funded to ever leave Learning Limited, and the noise of the checkout ' +
       'break is exactly what stops most people from noticing it. Worth noticing what the ' +
       'objective does not ask for: the cart-abandoner ad set stays in Learning Limited whatever ' +
-      'you do, because a 22,000-person pool cannot produce 50 purchases a week at any budget. ' +
+      'you do, because a 14,000-person pool cannot produce 50 purchases a week at any budget. ' +
       'Adding money there only raises frequency and CPM. Its escape is the other one module 4.2 ' +
       'describes, optimising for a more frequent event, and some ad sets simply have a ceiling.',
     buildState: () => state({
       conditions: { ...DEFAULT_CONDITIONS, aov: 900 },
       audiences: [
         audience('a-broad', 'Broad 18–34', 3_200_000, 0.06),
-        audience('a-cart', 'Cart abandoners · 7 day', 22_000, 0.95, { type: 'custom' }),
+        audience('a-cart', 'Cart abandoners · 7 day', 14_000, 0.95, { type: 'custom' }),
         audience('a-interest', 'Streetwear interests', 520_000, 0.12),
       ],
       campaigns: [
@@ -400,7 +400,11 @@ export const MISSIONS: Mission[] = [
     objectives: [
       { id: 'spend', label: 'Reach the spend target', metric: 'dailySpend', op: 'gte', value: 16_000, when: 'end', window: 7 },
       { id: 'roas', label: 'Finish above break-even', metric: 'roas', op: 'gte', value: 2.1, when: 'end', window: 7 },
-      { id: 'floor', label: 'Never let ROAS collapse on the way', metric: 'roas', op: 'gte', value: 2.05, when: 'everyDay' },
+      // Measured over any two consecutive days rather than each day alone. One bad
+      // day is weather: daily ROAS swings ±15% on noise, and a single-day floor
+      // fails whoever drew the worst Tuesday instead of whoever scaled worst. Two
+      // days in a row below break-even is a decision going wrong.
+      { id: 'floor', label: 'Never let ROAS collapse on the way', metric: 'roas', op: 'gte', value: 2.05, when: 'everyDay', window: 2 },
     ],
     events: [],
     debrief:

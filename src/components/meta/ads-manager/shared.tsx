@@ -309,6 +309,7 @@ export function ReportingPanel({
               <th>Breakdown</th>
               <th className="num">Amount spent</th>
               <th className="num">Impressions</th>
+              <th className="num">CPM</th>
               <th className="num">Link clicks</th>
               <th className="num">CTR</th>
               <th className="num">Results</th>
@@ -322,6 +323,7 @@ export function ReportingPanel({
                 <td><span className="mb-campaign-name">{g.key}</span></td>
                 <td className="num">{inr(g.t.spend)}</td>
                 <td className="num">{num(g.t.impressions)}</td>
+                <td className="num">{g.t.impressions > 0 ? inr(Math.round(cpm(g.t))) : '–'}</td>
                 <td className="num">{num(g.t.linkClicks)}</td>
                 <td className="num">{g.t.impressions > 0 ? pct(ctr(g.t)) : '–'}</td>
                 <td className="num">{num(g.t.purchases)}</td>

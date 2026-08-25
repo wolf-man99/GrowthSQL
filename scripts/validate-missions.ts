@@ -242,6 +242,29 @@ notes.push('\nMission 6 — sales fell and the ads look fine');
     report(m, 'hold-only', play(m, doNothing).grade));
   check('cutting spend to protect ROAS fails', !b.passed, report(m, 'retreat', b));
   check('rebuilding the creative that was working fails', !c.passed, report(m, 'wrong-fix', c));
+
+  // The debrief tells the learner in as many words that the cart-abandoner ad set
+  // has a hard ceiling: too few people to produce 50 purchases a week at any
+  // budget. That claim is only true while the pool stays small enough, and it went
+  // quietly false once before when the model was retuned, so it is gated here
+  // rather than trusted. Checked with margin, not at the threshold.
+  const cartEvents = (s: SimState) => {
+    const cart = s.adSets.find((x) => x.id === 'as-cart');
+    return cart ? cart.runtime.trailingEvents.slice(-7).reduce((x, y) => x + y, 0) : 0;
+  };
+  const lessonRun = play(m, lesson);
+  check('the cart pool really is too small to leave learning',
+    cartEvents(lessonRun.state) < 40,
+    `as-cart finished on ${cartEvents(lessonRun.state)} trailing events, against a threshold of 50`);
+  // The specific thing the debrief warns against: more money on a saturated pool
+  // buys frequency, not events.
+  const funded = play(m, (day) => day !== 2 ? [] : [
+    { kind: 'setAdSetBudget', id: 'as-cart', dailyBudget: 6_000 },
+  ]);
+  check('and throwing budget at it does not change that',
+    funded.state.adSets.find((x) => x.id === 'as-cart')?.runtime.learningState === 'limited',
+    `still "${funded.state.adSets.find((x) => x.id === 'as-cart')?.runtime.learningState}" at ₹6,000/day, ` +
+    `on ${cartEvents(funded.state)} events`);
 }
 
 // ────────────────────────────────────────────── 7. scale-without-breaking ──

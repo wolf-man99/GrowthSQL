@@ -293,8 +293,9 @@ model SimAccount {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  profile Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  days    SimDay[]
+  profile  Profile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  days     SimDay[]
+  segments SimDaySegment[]
 
   @@index([profileId, courseId])
 }
@@ -320,6 +321,34 @@ model SimDay {
   @@unique([accountId, day, entityId])
   @@index([accountId, day])
   @@index([accountId, entityId])
+}
+
+/// One ad set's day, broken out by who saw it and where.
+///
+/// Written at ad set level only: the audience and the placement mix both belong
+/// there, so campaign and account breakdowns are sums of these rows rather than
+/// separately-computed figures that could drift out of agreement with them. Each
+/// dimension partitions the same delivery, so summing any one of them reproduces
+/// the matching SimDay row exactly.
+model SimDaySegment {
+  id          String @id @default(cuid())
+  accountId   String
+  day         Int
+  /// The ad set this describes.
+  entityId    String
+  dimension   String // age | gender | placement
+  /// The band itself: '25–34', 'Women', 'Instagram Reels'.
+  segment     String
+  spend       Int    @default(0)
+  impressions Int    @default(0)
+  linkClicks  Int    @default(0)
+  purchases   Int    @default(0)
+  revenue     Int    @default(0)
+
+  account SimAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, day, entityId, dimension, segment])
+  @@index([accountId, day])
 }
 
 /// A learner's attempt at one mission, and how it was graded.

@@ -41,12 +41,21 @@ export interface Objective {
   op: Comparator;
   value: number;
   /**
-   * `end` grades the final state or the whole run's totals; `everyDay` requires the
-   * condition to hold on every recorded day, which is how "without ever letting
-   * ROAS fall below break-even" is expressed.
+   * Where the measurement sits. `end` reads the final state, or the totals over the
+   * last `window` days; `everyDay` requires the condition to hold across the whole
+   * run, which is how "without ever letting ROAS fall below break-even" is said.
    */
   when: 'end' | 'everyDay';
-  /** Measured over the last N days rather than the whole run, for "finish strong". */
+  /**
+   * How many days one measurement covers. `when` decides which of them count:
+   * `end` takes the final window, `everyDay` takes every window in the run.
+   *
+   * On an `everyDay` objective this is the difference between a rule about the
+   * account and a rule about luck. Daily ROAS on a real account swings ±15% on
+   * noise alone, so a single-day floor fails whoever draws the worst Tuesday
+   * rather than whoever scaled worst. A three-day window keeps the objective
+   * measuring what its label says: a sustained slide, not one bad day.
+   */
   window?: number;
 }
 

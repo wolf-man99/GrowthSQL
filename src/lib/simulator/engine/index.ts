@@ -21,6 +21,11 @@ export {
   resetLearning, isSignificantEdit,
 } from './learning';
 export { allocateCbo, budgetsForCampaign, paceSpend } from './budget';
+export {
+  segmentMixFor, segmentsFor, mergeSegments,
+  AGE_BANDS, GENDER_BANDS, PLACEMENTS, SEGMENT_DIMENSIONS, SEGMENT_KEYS,
+  type SegmentDimension, type SegmentDayResult, type SegmentMix, type DimensionMix,
+} from './segments';
 export { budgetShock, updateBudgetEma, NO_SHOCK, type BudgetShock } from './shock';
 export { validateEdit, type ValidationResult } from './validate';
 export {

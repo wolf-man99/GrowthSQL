@@ -155,6 +155,7 @@ export async function advanceDays(
   }
 
   const rows = results.flatMap((r) => dayRowsFor(account.id, r));
+  const segmentRows = results.flatMap((r) => segmentRowsFor(account.id, r));
 
   const [updated] = await prisma.$transaction([
     prisma.simAccount.update({
@@ -162,6 +163,7 @@ export async function advanceDays(
       data: { currentDay: state.day, state: state as unknown as object },
     }),
     prisma.simDay.createMany({ data: rows, skipDuplicates: true }),
+    prisma.simDaySegment.createMany({ data: segmentRows, skipDuplicates: true }),
   ]);
 
   return { account: toRecord(updated), results, events: fired };
@@ -207,6 +209,34 @@ function dayRowsFor(accountId: string, r: DayResult) {
   for (const [campaignId, m] of byCampaign) push(campaignId, 'campaign', m);
   push(ACCOUNT_ENTITY, 'account', r.account);
 
+  return rows;
+}
+
+/**
+ * One day's breakdown rows, at ad set level.
+ *
+ * Deliberately not written for campaigns or the account: those are sums of these,
+ * and storing a second copy would create the possibility of the two disagreeing.
+ * Rows with nothing in them are skipped, because an empty segment is not a
+ * measurement of zero, it is a segment the delivery never touched.
+ */
+function segmentRowsFor(accountId: string, r: DayResult) {
+  const rows: {
+    accountId: string; day: number; entityId: string; dimension: string; segment: string;
+    spend: number; impressions: number; linkClicks: number; purchases: number; revenue: number;
+  }[] = [];
+
+  for (const a of r.adSets) {
+    for (const s of a.segments) {
+      if (s.impressions === 0 && s.spend === 0) continue;
+      rows.push({
+        accountId, day: r.day, entityId: a.adSetId,
+        dimension: s.dimension, segment: s.segment,
+        spend: s.spend, impressions: s.impressions, linkClicks: s.linkClicks,
+        purchases: s.purchases, revenue: s.revenue,
+      });
+    }
+  }
   return rows;
 }
 
@@ -297,6 +327,49 @@ export async function totalsByEntity(
 export async function accountTotals(accountId: string, fromDay: number, toDay: number): Promise<RangeTotals> {
   const map = await totalsByEntity(accountId, 'account', fromDay, toDay);
   return map.get(ACCOUNT_ENTITY) ?? { ...ZERO };
+}
+
+export interface SegmentRow {
+  dimension: string;
+  segment: string;
+  spend: number;
+  impressions: number;
+  linkClicks: number;
+  purchases: number;
+  revenue: number;
+}
+
+/**
+ * Breakdown rows for a range, summed across every ad set.
+ *
+ * One query for all three dimensions rather than three, because the dashboard lets
+ * a learner flick between them and re-querying on each click would make a read of
+ * stored history feel like a computation.
+ *
+ * Returns rows exactly as delivered. Segments the account never touched are simply
+ * absent rather than present at zero, so an ad set targeting 18–34 shows three age
+ * bands and not five, the way Ads Manager does.
+ */
+export async function segmentTotals(
+  accountId: string,
+  fromDay: number,
+  toDay: number,
+): Promise<SegmentRow[]> {
+  const grouped = await prisma.simDaySegment.groupBy({
+    by: ['dimension', 'segment'],
+    where: { accountId, day: { gte: fromDay, lte: toDay } },
+    _sum: { spend: true, impressions: true, linkClicks: true, purchases: true, revenue: true },
+  });
+
+  return grouped.map((g) => ({
+    dimension: g.dimension,
+    segment: g.segment,
+    spend: g._sum.spend ?? 0,
+    impressions: g._sum.impressions ?? 0,
+    linkClicks: g._sum.linkClicks ?? 0,
+    purchases: g._sum.purchases ?? 0,
+    revenue: g._sum.revenue ?? 0,
+  }));
 }
 
 /** The account's day-by-day series, for charting a trend rather than a total. */

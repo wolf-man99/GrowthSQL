@@ -33,10 +33,11 @@ import {
 } from './types';
 import { computeCpm } from './auction';
 import { computeLinkClicks, computePurchases, newReach } from './response';
+import { segmentMixFor, segmentsFor } from './segments';
 import { budgetsForCampaign, paceSpend } from './budget';
 import { learningStateFor, isPenalised, optimisationEvents, pushTrailing, trailingEventTotal } from './learning';
 import { jitter, streamFor, type Rng } from './rng';
-import { budgetShock, updateBudgetEma } from './shock';
+import { budgetShock, updateBudgetEma, type BudgetShock } from './shock';
 
 export interface TickOptions {
   seed: number;
@@ -143,6 +144,29 @@ export function tick(state: SimState, opts: TickOptions): { state: SimState; res
       }
     }
 
+    // Budget shock is a campaign-level question under CBO, and an ad set-level one
+    // under ABO. The distinction matters: CBO moves money *between* ad sets every
+    // day by design, and reading each ad set's own swing as a scaling shock would
+    // penalise exactly the concentration Meta is deliberately doing — a negative
+    // feedback loop that stops CBO ever picking a winner, which is the opposite of
+    // what module 4.1 teaches. Comparing the campaign's total against the total it
+    // has settled at leaves internal reallocation invisible while still charging
+    // full price for a campaign budget the learner actually jumped.
+    //
+    // Ad sets with no settled level yet sit out of both sides of the ratio: a launch
+    // is not a departure from anything.
+    let campaignShock: BudgetShock | undefined;
+    if (campaign.budgetMode === 'cbo') {
+      let settledAllowance = 0;
+      let settledEma = 0;
+      for (const a of campaignLive) {
+        if (a.runtime.budgetEma <= 0) continue;
+        settledAllowance += budgets.get(a.id) ?? 0;
+        settledEma += a.runtime.budgetEma;
+      }
+      campaignShock = budgetShock(settledAllowance, settledEma);
+    }
+
     for (const adSet of campaignAdSets) {
       const audience = audiences.get(adSet.audienceId);
       const ads = next.ads.filter((ad) => ad.adSetId === adSet.id && isLive(ad));
@@ -167,14 +191,21 @@ export function tick(state: SimState, opts: TickOptions): { state: SimState; res
           delivery: deliveryStateFor(adSet, ads.length, 0),
           trailingEvents: trailingEventTotal(adSet.runtime.trailingEvents),
           ads: [],
+          segments: [],
         });
         continue;
       }
 
+      // How this ad set's targeting and placements price and convert relative to
+      // the blended rates the model is calibrated on. Also carries the shares the
+      // day's totals get broken out along, so the breakdowns are the same delivery
+      // rather than a split applied to it afterwards.
+      const mix = segmentMixFor(audience, adSet.advantagePlacements);
+
       // Read the shock against yesterday's settled level, before the EMA absorbs
       // today's figure: scaling gently keeps `ratio` under the threshold and costs
       // nothing, while a jump pays for the inventory it forces delivery to buy.
-      const shock = budgetShock(allowed, adSet.runtime.budgetEma);
+      const shock = campaignShock ?? budgetShock(allowed, adSet.runtime.budgetEma);
       adSet.runtime.budgetEma = updateBudgetEma(adSet.runtime.budgetEma, allowed);
 
       const spend = paceSpend(allowed, {
@@ -204,6 +235,7 @@ export function tick(state: SimState, opts: TickOptions): { state: SimState; res
           overlappingSiblings: overlaps.get(adSet.id) ?? 0,
           learningPenalty: penalised,
           advantagePlacements: adSet.advantagePlacements,
+          segmentMix: mix.cpmFactor,
           marketPressure: next.conditions.marketPressure,
           weekdayIndex,
           noiseSpread,
@@ -215,7 +247,8 @@ export function tick(state: SimState, opts: TickOptions): { state: SimState; res
         const creativeFrequency = priorReach > 0 ? ad.runtime.impressions / priorReach : 0;
 
         const linkClicks = computeLinkClicks({
-          impressions, audience, creative, creativeFrequency, noiseSpread,
+          impressions, audience, creative, creativeFrequency,
+          segmentMix: mix.ctrFactor, noiseSpread,
         }, adRng);
 
         const purchases = computePurchases({
@@ -225,6 +258,7 @@ export function tick(state: SimState, opts: TickOptions): { state: SimState; res
           // on conversion rate as well as on price.
           landingPageQuality: next.conditions.landingPageQuality * shock.cvr,
           learningPenalty: penalised,
+          segmentMix: mix.cvrFactor,
           noiseSpread,
         }, adRng);
 
@@ -285,6 +319,17 @@ export function tick(state: SimState, opts: TickOptions): { state: SimState; res
         delivery: deliveryStateFor(adSet, ads.length, adSetSpend),
         trailingEvents: trailingEventTotal(adSet.runtime.trailingEvents),
         ads: adResults,
+        // Broken out at ad set level, because that is the level the audience and
+        // the placement mix belong to. Every ad in an ad set draws from the same
+        // pool through the same placements, so splitting per ad and re-merging
+        // would only add rounding, not information.
+        segments: segmentsFor(mix, {
+          spend: Math.round(adSetSpend),
+          impressions: adSetImpressions,
+          linkClicks: totals.linkClicks,
+          purchases: totals.purchases,
+          revenue: totals.revenue,
+        }),
       });
 
       account.spend += Math.round(adSetSpend);

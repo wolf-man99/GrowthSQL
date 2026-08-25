@@ -14,7 +14,11 @@ import { inr } from '@/lib/simulator/demo-account';
 import type { SimRows } from '@/lib/simulator/view';
 import type { SimEdit, SimState } from '@/lib/simulator/engine';
 import { RANGE_OPTIONS } from '@/lib/simulator/ranges';
-import { breakdownFor, combineBreakdowns, type BreakdownKind } from '@/lib/simulator/breakdowns';
+// Straight from the module rather than the engine barrel: this is a client
+// component, and the barrel would pull the whole simulation engine into the
+// browser bundle to fetch one lookup table.
+import { SEGMENT_KEYS, type SegmentDimension } from '@/lib/simulator/engine/segments';
+import type { SegmentRow } from '@/lib/simulator/account';
 
 /**
  * The live Run account.
@@ -61,6 +65,9 @@ export interface SimDashboardProps {
   state: SimState;
   rows: SimRows;
   totals: { spend: number; revenue: number; purchases: number; impressions: number; linkClicks: number; reach: number };
+  /** Delivery for the range broken out by age, gender and placement, as recorded
+   *  each day. Empty for a range with no delivery in it. */
+  segments: SegmentRow[];
   rangeKey: string;
   rangeLabel: string;
   /** A mission's horizon. Advancing stops here so a run cannot overshoot its brief. */
@@ -254,18 +261,22 @@ export function SimDashboard(props: SimDashboardProps) {
     if (!isBreakdown) {
       return groupRows(props.rows.campaigns, reportBy === 'delivery' ? (r) => r.delivery : (r) => r.filterType);
     }
-    // Each ad set's totals split by its own audience's weights, then summed by
-    // segment, so an account mixing a narrow age band with a broad one shows the
-    // honest blend rather than one audience's shape applied to everything.
-    const audienceById = new Map(props.state.audiences.map((a) => [a.id, a]));
-    const perAdSet = props.rows.adSets.flatMap((row) => {
-      const adSet = props.state.adSets.find((a) => a.id === row.id);
-      const audience = adSet ? audienceById.get(adSet.audienceId) : undefined;
-      if (!audience || row.t.impressions === 0) return [];
-      return [breakdownFor(reportBy as BreakdownKind, row.t, audience, props.currentDay)];
-    });
-    return combineBreakdowns(perAdSet).map((r) => ({ key: r.key, t: r.t, reach: 0 }));
-  }, [isBreakdown, props.rows.campaigns, props.rows.adSets, props.state, props.currentDay, reportBy]);
+    // Recorded rows, read back and ordered. Nothing is computed here: the split was
+    // decided when the day was delivered, so what the learner reads is what happened
+    // rather than a re-derivation that could disagree with the totals above it.
+    const order = SEGMENT_KEYS[reportBy as SegmentDimension];
+    return props.segments
+      .filter((s) => s.dimension === reportBy)
+      .sort((a, b) => order.indexOf(a.segment) - order.indexOf(b.segment))
+      .map((s) => ({
+        key: s.segment,
+        t: {
+          spend: s.spend, revenue: s.revenue, purchases: s.purchases,
+          impressions: s.impressions, linkClicks: s.linkClicks,
+        },
+        reach: 0,
+      }));
+  }, [isBreakdown, props.rows.campaigns, props.segments, reportBy]);
 
   const roas = props.totals.spend > 0 ? props.totals.revenue / props.totals.spend : 0;
   const costPerResult = props.totals.purchases > 0 ? Math.round(props.totals.spend / props.totals.purchases) : 0;
@@ -575,13 +586,17 @@ export function SimDashboard(props: SimDashboardProps) {
                   { key: 'placement', label: 'By placement' },
                 ]}
               />
-              {isBreakdown && (
+              {isBreakdown && reportGroups.length === 0 && (
                 <p className="mb-footnote">
-                  Age, gender and placement splits are modelled from each ad set&apos;s own targeting,
-                  not measured per person: the simulator delivers at ad set level. They always add up
-                  to the totals above, and they change when you change who you target, so they are
-                  useful for reading audience mix. Treat them as a picture of your targeting rather
-                  than as tracked demographics.
+                  No delivery recorded in this range yet. Advance the clock and these rows fill in.
+                </p>
+              )}
+              {isBreakdown && reportGroups.length > 0 && (
+                <p className="mb-footnote">
+                  Every age band, gender and placement buys its impressions at its own price and
+                  converts at its own rate, so read the columns together: the cheapest CPM here is
+                  usually the worst ROAS. Each breakdown splits the same delivery, so all three add
+                  back to the totals above.
                 </p>
               )}
             </>

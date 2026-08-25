@@ -11,6 +11,11 @@
  * testable, and calibratable. Persistence wraps it, never the other way round.
  */
 
+// Type-only, and deliberately the one edge back out of this module: segments.ts
+// needs SimAudience from here, and the day result below needs its row shape. Both
+// imports are erased at compile time, so the cycle never exists at runtime.
+import type { SegmentDayResult } from './segments';
+
 // ─────────────────────────────────────────────────────────────── enumerations ──
 
 /** Meta's real campaign objectives. Note this is NOT the same axis as the
@@ -262,6 +267,9 @@ export interface AdSetDayResult extends DayMetrics {
   /** Trailing-7-day optimisation events, the number the 50-event rule reads. */
   trailingEvents: number;
   ads: AdDayResult[];
+  /** The same day, broken out by age, gender and placement. Each dimension
+   *  partitions the identical delivery, so all three sum back to the totals above. */
+  segments: SegmentDayResult[];
 }
 
 export interface DayResult {
@@ -342,13 +350,24 @@ export const MODEL = {
    *  from people less likely to convert. This is the mechanism behind module 7.1's
    *  warning that an overnight jump "forces delivery into worse inventory", and it
    *  is separate from (and additive to) the learning-phase reset a big edit causes.
-   *  How fast the EMA catches up is how fast a new spend level becomes the norm. */
+   *
+   *  How fast the EMA catches up is how fast a new spend level becomes the norm.
+   *  Tuned against the shape of the lesson rather than its size: slowing it down
+   *  makes a jump hurt for longer, but it also punishes a *gentle* ramp, because a
+   *  budget climbing 10% a day outruns any lagging average. What separates the two
+   *  approaches is how far each departs from its settled level on any given day, so
+   *  the severity lives in the coefficients below and this stays quick. */
   budgetEmaAlpha: 0.25,
   /** Ratio above which a jump starts to hurt at all. */
   budgetShockThreshold: 1.3,
-  budgetShockCpmPerPoint: 0.20,
-  budgetShockCvrPerPoint: 0.14,
-  budgetShockCvrMax: 0.35,
+  /** Both scale with how far *over* the threshold the day is, which is what makes
+   *  the same constants forgive a 20% step and punish an overnight triple: a step
+   *  sits fractions of a point over and pays almost nothing, while a 3x jump sits
+   *  two points over and pays several times that. Set generously enough that a jump
+   *  costs a genuinely bad week, because on a real account it does. */
+  budgetShockCpmPerPoint: 0.32,
+  budgetShockCvrPerPoint: 0.20,
+  budgetShockCvrMax: 0.45,
 
   /** Day-to-day randomness. Delivery is noisy; a model without noise teaches
    *  learners to over-read single days, which is the opposite of module 5.3. */

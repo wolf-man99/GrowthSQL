@@ -70,6 +70,9 @@ export interface ClickInputs {
   creative: CreativeAttributes;
   /** This creative's cumulative frequency against this audience. */
   creativeFrequency: number;
+  /** What the ad set's age, gender and placement mix does to the blended
+   *  click-through. 1 on the reference mix; see engine/segments.ts. */
+  segmentMix: number;
   noiseSpread: number;
 }
 
@@ -79,6 +82,7 @@ export function computeLinkClicks(i: ClickInputs, rng: Rng): number {
     i.creative.baseCtrMultiplier *
     warmthFit(i.creative, i.audience.warmth) *
     fatigueFactor(i.creativeFrequency, i.creative.fatigueRate) *
+    i.segmentMix *
     jitter(rng, i.noiseSpread);
 
   return Math.max(0, Math.round(i.impressions * (Math.max(0.02, ctrPct) / 100)));
@@ -90,6 +94,9 @@ export interface ConversionInputs {
   /** Account-level multiplier: a broken checkout drags every campaign down at once. */
   landingPageQuality: number;
   learningPenalty: boolean;
+  /** What the ad set's age, gender and placement mix does to the blended conversion
+   *  rate. Where Audience Network's quarter-rate traffic shows up. */
+  segmentMix: number;
   noiseSpread: number;
 }
 
@@ -98,6 +105,7 @@ export function computePurchases(i: ConversionInputs, rng: Rng): number {
     baseCvr(i.audience.warmth) *
     i.landingPageQuality *
     (i.learningPenalty ? MODEL.learningCvrPenalty : 1) *
+    i.segmentMix *
     jitter(rng, i.noiseSpread);
 
   const expected = i.linkClicks * (Math.max(0, cvrPct) / 100);

@@ -60,6 +60,9 @@ export interface CpmInputs {
   overlappingSiblings: number;
   learningPenalty: boolean;
   advantagePlacements: boolean;
+  /** What this ad set's age, gender and placement mix does to the blended price.
+   *  1 for an audience sitting on the reference mix; see engine/segments.ts. */
+  segmentMix: number;
   marketPressure: number;
   weekdayIndex: number;
   noiseSpread: number;
@@ -74,6 +77,7 @@ export function computeCpm(i: CpmInputs, rng: Rng): number {
     overlapPenalty(i.overlappingSiblings) *
     (i.learningPenalty ? MODEL.learningCpmPenalty : 1) *
     (i.advantagePlacements ? MODEL.advantagePlacementCpmDiscount : 1) *
+    i.segmentMix *
     i.marketPressure *
     WEEKDAY_WEIGHT[i.weekdayIndex] *
     jitter(rng, i.noiseSpread);

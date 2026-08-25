@@ -3,7 +3,9 @@ import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { requireProfileId } from '@/lib/auth/server';
 import { isRunUnlocked } from '@/lib/progress/gating';
-import { accountTotals, createAccount, loadAccount, loadSandbox, totalsByEntity } from '@/lib/simulator/account';
+import {
+  accountTotals, createAccount, loadAccount, loadSandbox, segmentTotals, totalsByEntity,
+} from '@/lib/simulator/account';
 import { buildSimRows } from '@/lib/simulator/view';
 import { buildSandboxAccount } from '@/lib/simulator/scenarios/sandbox';
 import { rangeByKey, windowFor } from '@/lib/simulator/ranges';
@@ -54,11 +56,12 @@ export default async function PlayAccount({
   const option = rangeByKey(range);
   const { fromDay, toDay } = windowFor(account.currentDay, option);
 
-  const [campaignTotals, adSetTotals, adTotals, totals] = await Promise.all([
+  const [campaignTotals, adSetTotals, adTotals, totals, segments] = await Promise.all([
     totalsByEntity(account.id, 'campaign', fromDay, toDay),
     totalsByEntity(account.id, 'adset', fromDay, toDay),
     totalsByEntity(account.id, 'ad', fromDay, toDay),
     accountTotals(account.id, fromDay, toDay),
+    segmentTotals(account.id, fromDay, toDay),
   ]);
   const rows = buildSimRows({ state: account.state, campaignTotals, adSetTotals, adTotals });
 
@@ -98,6 +101,7 @@ export default async function PlayAccount({
           state={account.state}
           rows={rows}
           totals={totals}
+          segments={segments}
           rangeKey={option.key}
           rangeLabel={option.label}
           maxDay={mission?.durationDays}

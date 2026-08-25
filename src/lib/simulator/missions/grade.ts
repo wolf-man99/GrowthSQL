@@ -63,9 +63,7 @@ function measure(metric: MetricKey, days: DayResult[], finalState: SimState): nu
 
 function evaluate(objective: Objective, input: GradeInput): ObjectiveResult {
   const { results, finalState } = input;
-  const scoped = objective.window && objective.window > 0
-    ? results.slice(-objective.window)
-    : results;
+  const span = objective.window && objective.window > 0 ? objective.window : 1;
 
   const base: Omit<ObjectiveResult, 'passed' | 'actual'> = {
     id: objective.id,
@@ -76,18 +74,24 @@ function evaluate(objective: Objective, input: GradeInput): ObjectiveResult {
   };
 
   if (objective.when === 'everyDay') {
-    // Graded day by day. Reported `actual` is the worst day, because that is the
-    // one that failed it and the one worth going back to look at.
+    // Every window in the run has to hold, not just the last one. Reported `actual`
+    // is the worst of them, because that is the stretch that failed it and the one
+    // worth going back to look at.
+    //
+    // Windows are rolling and measured on summed totals, so a single noisy day
+    // cannot fail an objective on its own unless `window` is 1. That is deliberate:
+    // "never let ROAS collapse" should catch a bad week, not a bad Tuesday.
     let worst = objective.op === 'gte' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
-    let passed = scoped.length > 0;
-    for (const day of scoped) {
-      const value = measure(objective.metric, [day], finalState);
+    let passed = results.length > 0;
+    for (let end = span; end <= results.length; end++) {
+      const value = measure(objective.metric, results.slice(end - span, end), finalState);
       worst = objective.op === 'gte' ? Math.min(worst, value) : Math.max(worst, value);
       if (!compare(value, objective.op, objective.value)) passed = false;
     }
     return { ...base, passed, actual: Number.isFinite(worst) ? worst : 0 };
   }
 
+  const scoped = objective.window && objective.window > 0 ? results.slice(-span) : results;
   const actual = measure(objective.metric, scoped, finalState);
   return { ...base, passed: compare(actual, objective.op, objective.value), actual };
 }
