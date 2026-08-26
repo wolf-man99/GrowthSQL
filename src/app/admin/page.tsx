@@ -28,7 +28,9 @@ const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
 export default async function AdminDashboard() {
   const profileId = await getProfileId();
-  if (!profileId) redirect('/login?next=%2Fadmin');
+  // The staff portal, not the learner login: someone reaching for the dashboard
+  // wants the dashboard, and the learner form would land them on /courses.
+  if (!profileId) redirect('/admin/login');
 
   const admin = await getAdmin();
   if (!admin) {

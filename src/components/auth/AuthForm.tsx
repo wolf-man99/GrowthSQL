@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Sparkles, Loader, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Sparkles, Loader, AlertCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/primitives';
 import { COURSES } from '@/lib/courses/registry';
 import { LEARNING_GOALS, HEARD_FROM_OPTIONS } from '@/lib/auth/onboarding';
@@ -176,18 +176,45 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
   );
 }
 
+/**
+ * One labelled input.
+ *
+ * Password fields get a reveal toggle. It is not a convenience: password managers
+ * are not universal, phone keyboards mistype, and the alternative to letting
+ * someone check what they typed is letting them fail the login and guess why. The
+ * toggle is a button rather than a checkbox so it can sit inside the field, and it
+ * carries an aria-label because its only visible content is an icon.
+ */
 function Field({ label, value, onChange, placeholder, type, required }: { label: string; value: string; onChange: (v: string) => void; placeholder: string; type: string; required?: boolean }) {
+  const [revealed, setRevealed] = useState(false);
+  const isPassword = type === 'password';
   return (
     <label className="block">
       <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        required={required}
-        className="h-11 w-full rounded-lg border-2 border-[var(--ink)] bg-white px-3 text-sm font-medium outline-none transition-all placeholder:font-normal placeholder:text-[var(--text-faint)] focus:shadow-[3px_3px_0_var(--blue)]"
-      />
+      <span className="relative block">
+        <input
+          type={isPassword && revealed ? 'text' : type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          required={required}
+          className={cn(
+            'h-11 w-full rounded-lg border-2 border-[var(--ink)] bg-white px-3 text-sm font-medium outline-none transition-all placeholder:font-normal placeholder:text-[var(--text-faint)] focus:shadow-[3px_3px_0_var(--blue)]',
+            isPassword && 'pr-11',
+          )}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setRevealed((r) => !r)}
+            aria-label={revealed ? 'Hide password' : 'Show password'}
+            aria-pressed={revealed}
+            className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-md text-[var(--text-faint)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+          >
+            {revealed ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        )}
+      </span>
     </label>
   );
 }

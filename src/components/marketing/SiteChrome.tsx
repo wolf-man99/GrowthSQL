@@ -1,6 +1,7 @@
 import Link from 'next/link';
-import { Sparkles, ArrowRight, BarChart3 } from 'lucide-react';
+import { Sparkles, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/primitives';
+import { UserMenu } from '@/components/app/UserMenu';
 
 /**
  * Shared marketing nav + footer. Previously duplicated inline in / and /courses;
@@ -38,8 +39,11 @@ export function SiteHeader({ authed, isAdmin }: { authed: boolean; isAdmin?: boo
               <BarChart3 size={15} /> <span className="hidden sm:inline">Analytics</span>
             </Link>
           )}
+          {/* The same menu the SQL app uses. Before this it lived only inside that
+              section, so a learner on /courses had no route to their own profile
+              and no sign-out at all. */}
           {authed ? (
-            <Link href="/courses"><Button size="sm">My courses <ArrowRight size={14} /></Button></Link>
+            <UserMenu />
           ) : (
             <>
               <Link href="/login" className="rounded-lg px-3 py-2 text-sm font-bold text-[var(--text-muted)] hover:text-[var(--text)]">

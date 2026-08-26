@@ -26,12 +26,15 @@ export const COURSE_PRICING: Record<string, CoursePricing> = {
     prices: { learn: 499, run: 999, bundle: 1199 },
     sells: ['learn', 'run', 'bundle'],
   },
-  // Learn only for now. The Run simulator for Search is a separate build — the
-  // auction model is genuinely different from Meta's — so there is nothing to sell
-  // yet, and listing a bundle that contains a tier that does not exist would be a
-  // promise the product cannot keep.
+  // Priced above Meta on purpose: Search is the harder discipline, the accounts it
+  // runs are usually larger, and the buyer is further along.
+  //
+  // Run and the bundle carry prices but are NOT in `sells` yet, because the Search
+  // simulator has not been built. Listing them would be selling a tier that does
+  // not exist. The prices sit here so the day it ships is a one-word change rather
+  // than a pricing conversation.
   'google-ads': {
-    prices: { learn: 499 },
+    prices: { learn: 999, run: 1999, bundle: 2499 },
     sells: ['learn'],
   },
 };
