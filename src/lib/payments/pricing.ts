@@ -1,11 +1,10 @@
 /**
  * What each course costs, and which products it actually sells.
  *
- * The registry's single `Course.price` field cannot hold this: Meta Ads sells
- * three products (Learn, Run, and the bundle of both) at three prices, and Google
- * Ads currently sells one. The server is always the source of truth for amount —
- * routes look prices up here by course and product, and never trust a number that
- * arrived from a browser.
+ * The registry's single `Course.price` field cannot hold this: each course sells
+ * three products (Learn, Run, and the bundle of both) at three prices. The server
+ * is always the source of truth for amount — routes look prices up here by course
+ * and product, and never trust a number that arrived from a browser.
  *
  * `sells` is the important half. A course with no Run tier must not be able to
  * take money for one, and the check has to live somewhere the checkout route reads
@@ -29,10 +28,9 @@ export const COURSE_PRICING: Record<string, CoursePricing> = {
   // Priced above Meta on purpose: Search is the harder discipline, the accounts it
   // runs are usually larger, and the buyer is further along.
   //
-  // Run and the bundle carry prices but are NOT in `sells` yet, because the Search
-  // simulator has not been built. Listing them would be selling a tier that does
-  // not exist. The prices sit here so the day it ships is a one-word change rather
-  // than a pricing conversation.
+  // The bundle saves ₹499 against buying both, which is deliberately a smaller
+  // discount than Meta's: there is less reason to nudge somebody into a Run tier
+  // they may not be ready for when Learn alone is a fuller course here.
   'google-ads': {
     prices: { learn: 999, run: 1999, bundle: 2499 },
     sells: ['learn', 'run', 'bundle'],

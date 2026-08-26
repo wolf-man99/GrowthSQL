@@ -1,5 +1,7 @@
 import Link from 'next/link';
-import { ArrowLeft, Check, Clock, Lock, Play, Rocket, Sparkles, Zap } from 'lucide-react';
+import {
+  ArrowLeft, ArrowRight, Check, Clock, Lock, PartyPopper, Play, Sparkles, Zap,
+} from 'lucide-react';
 import {
   GOOGLE_MODULES, GOOGLE_LESSONS, GOOGLE_AVAILABLE_LESSONS, GOOGLE_TOTAL_XP,
 } from '@/lib/content/google-ads';
@@ -7,6 +9,7 @@ import { prisma } from '@/lib/db';
 import { requireProfileId } from '@/lib/auth/server';
 import { ensureEnrollment } from '@/lib/progress/persist';
 import { entitlementsFor } from '@/lib/payments/entitlements';
+import { isRunUnlocked } from '@/lib/progress/gating';
 import { FREE_MODULE_COUNT, priceOf } from '@/lib/payments/pricing';
 import { Card, Progress } from '@/components/ui/primitives';
 import { CourseLogo } from '@/components/app/CourseLogo';
@@ -18,15 +21,21 @@ export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Google Ads - Tiramisu' };
 
 const LEARN_PRICE = priceOf('google-ads', 'learn') ?? 0;
+const RUN_PRICE = priceOf('google-ads', 'run') ?? 0;
+const BUNDLE_PRICE = priceOf('google-ads', 'bundle') ?? 0;
+const BUNDLE_SAVING = LEARN_PRICE + RUN_PRICE - BUNDLE_PRICE;
 
 /**
  * The Google Ads course home.
  *
  * Structurally a sibling of the Meta Ads page rather than a copy of it: same
- * module list, same progress bar, same free-preview gate. The difference is that
- * this course has no Run tier yet, so instead of a locked simulator card at the
- * bottom it says so plainly. Showing a greyed-out "Run" panel for something that
- * has not been built would read as a paywall rather than as an absence.
+ * module list, same progress bar, same free-preview gate, same two-tier shape now
+ * that Search has a Run tier of its own.
+ *
+ * Its pricing block is written here rather than reusing PricingSection, which is
+ * hardcoded to the Meta table. Generalising that component is the right change
+ * eventually; doing it two days before a launch to serve one extra course is not,
+ * and a wrong price on a live checkout is a worse outcome than a duplicated card.
  */
 export default async function GoogleAdsHome() {
   const profileId = await requireProfileId('/courses/google-ads');
@@ -34,16 +43,17 @@ export default async function GoogleAdsHome() {
 
   // Parallel is safe: DATABASE_URL carries pgbouncer=true, so Prisma never relies
   // on server-side prepared statements. See the fuller note in the Meta Ads page.
-  const [profile, done, entitlements] = await Promise.all([
+  const [profile, done, entitlements, runUnlocked] = await Promise.all([
     prisma.profile.findUniqueOrThrow({ where: { id: profileId } }),
     prisma.attempt.findMany({
       where: { profileId, courseId: 'google-ads', itemType: 'lesson', passed: true },
       select: { itemId: true },
     }),
     entitlementsFor(profileId, 'google-ads'),
+    isRunUnlocked(profileId, 'google-ads'),
   ]);
 
-  const { hasLearn } = entitlements;
+  const { hasLearn, hasRun } = entitlements;
   const completed = new Set(done.map((d) => d.itemId));
   const isDone = (moduleSlug: string, slug: string) => completed.has(`${moduleSlug}/${slug}`);
   const completedCount = GOOGLE_LESSONS.filter((l) => isDone(l.moduleSlug, l.slug)).length;
@@ -160,23 +170,116 @@ export default async function GoogleAdsHome() {
           })}
         </div>
 
-        {/* Pricing */}
+        {/* Pricing. Two shapes, because the decision differs: somebody who owns
+            nothing is choosing between Learn and the bundle, and somebody who
+            already owns Learn is deciding whether to add Run. Showing all three to
+            both would make each of them read the wrong question. */}
         {!hasLearn && (
           <div id="pricing" className="mt-10 scroll-mt-20">
-            <Card className="p-6 text-center">
+            <div className="text-center">
               <span className="chip bg-[var(--green)] text-white">Unlock the full course</span>
               <h2 className="mt-3 text-2xl font-extrabold tracking-tight">
-                Modules 1–{FREE_MODULE_COUNT} are free. The rest is ₹{LEARN_PRICE}, once.
+                Modules 1–{FREE_MODULE_COUNT} are free. After that, pick one.
               </h2>
               <p className="mx-auto mt-2 max-w-md text-[var(--text-muted)]">
-                All {GOOGLE_AVAILABLE_LESSONS} lessons, {GOOGLE_TOTAL_XP} XP, and every calculator.
-                No subscription, no expiry.
+                One payment either way. No subscription, no expiry.
+              </p>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <Card className="flex flex-col p-5">
+                <div className="text-[15px] font-extrabold">Learn</div>
+                <div className="mt-0.5 font-display text-[32px] font-extrabold leading-none tracking-tight">
+                  ₹{LEARN_PRICE}
+                </div>
+                <ul className="mt-4 space-y-2 text-sm text-[var(--text-muted)]">
+                  <li className="flex items-start gap-2">
+                    <Check size={14} className="mt-0.5 shrink-0 text-[var(--green)]" />
+                    All {GOOGLE_AVAILABLE_LESSONS} lessons, {GOOGLE_TOTAL_XP} XP
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check size={14} className="mt-0.5 shrink-0 text-[var(--green)]" />
+                    Every diagram and calculator
+                  </li>
+                  <li className="flex items-start gap-2 text-[var(--text-faint)]">
+                    <Lock size={13} className="mt-0.5 shrink-0" />
+                    The account simulator is not included
+                  </li>
+                </ul>
+                <div className="mt-auto pt-5">
+                  <CheckoutButton
+                    product="learn"
+                    courseId="google-ads"
+                    label={`Buy Learn — ₹${LEARN_PRICE}`}
+                    variant="secondary"
+                    className="w-full justify-center"
+                  />
+                </div>
+              </Card>
+
+              <Card
+                className="relative flex flex-col border-[var(--blue)] p-5"
+                style={{ boxShadow: '4px 4px 0 var(--blue)' }}
+              >
+                <span className="absolute -top-3 left-5 whitespace-nowrap rounded-full border-2 border-[var(--ink)] bg-[var(--blue)] px-3 py-1 text-[10.5px] font-extrabold uppercase tracking-wider text-white shadow-[2px_2px_0_var(--ink)]">
+                  Best value
+                </span>
+                <div className="text-[15px] font-extrabold">Bundle</div>
+                <div className="mt-0.5 flex items-baseline gap-2">
+                  <span className="font-display text-[32px] font-extrabold leading-none tracking-tight">
+                    ₹{BUNDLE_PRICE}
+                  </span>
+                  <span className="text-sm font-semibold text-[var(--text-faint)] line-through">
+                    ₹{LEARN_PRICE + RUN_PRICE}
+                  </span>
+                </div>
+                <span className="mt-2 w-fit rounded-full border-2 border-[var(--ink)] bg-[var(--green)] px-2.5 py-0.5 text-[10.5px] font-extrabold tracking-wide text-white">
+                  You save ₹{BUNDLE_SAVING}
+                </span>
+                <ul className="mt-4 space-y-2 text-sm text-[var(--text-muted)]">
+                  <li className="flex items-start gap-2">
+                    <Check size={14} className="mt-0.5 shrink-0 text-[var(--green)]" />
+                    Everything in Learn
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check size={14} className="mt-0.5 shrink-0 text-[var(--green)]" />
+                    The Search account simulator, with seven graded missions
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check size={14} className="mt-0.5 shrink-0 text-[var(--green)]" />
+                    Search, Performance Max and App campaigns
+                  </li>
+                </ul>
+                <div className="mt-auto pt-5">
+                  <CheckoutButton
+                    product="bundle"
+                    courseId="google-ads"
+                    label={`Get the bundle — ₹${BUNDLE_PRICE}`}
+                    className="w-full justify-center"
+                  />
+                </div>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {hasLearn && !hasRun && (
+          <div id="pricing" className="mt-10 scroll-mt-20">
+            <Card className="p-6 text-center">
+              <span className="chip bg-[var(--blue)] text-white">Add the Run tier</span>
+              <h2 className="mt-3 text-2xl font-extrabold tracking-tight">
+                Run the account, don&rsquo;t just read about it. ₹{RUN_PRICE}.
+              </h2>
+              <p className="mx-auto mt-2 max-w-lg text-[var(--text-muted)]">
+                A simulated Google Ads account where every search is auctioned individually.
+                Seven graded missions across Search, Performance Max and App campaigns, in two
+                different businesses.
               </p>
               <div className="mt-5 flex justify-center">
                 <CheckoutButton
-                  product="learn"
+                  product="run"
                   courseId="google-ads"
-                  label={`Unlock Google Ads - ₹${LEARN_PRICE}`}
+                  label={`Unlock Run — ₹${RUN_PRICE}`}
                   size="lg"
                 />
               </div>
@@ -184,23 +287,46 @@ export default async function GoogleAdsHome() {
           </div>
         )}
 
-        {/* What comes next. Stated as an absence rather than shown as a locked
-            panel, because there is nothing behind it to unlock yet. */}
-        <div className="mt-10">
-          <Card className="flex items-center gap-4 border-dashed p-5">
-            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border-2 border-dashed border-[var(--ink)] bg-[var(--surface-2)] text-[var(--text-muted)]">
-              <Rocket size={22} />
+        {/* Run */}
+        <div className="mt-10 mb-3 flex items-center gap-2">
+          <span className={cn('chip', runUnlocked ? 'bg-[var(--green)] text-white' : 'bg-[var(--surface-3)] text-[var(--text-muted)]')}>
+            Run
+          </span>
+          <span className="text-xs text-[var(--text-faint)]">The hands-on account simulator.</span>
+        </div>
+        <Link href={runUnlocked || !learnComplete || hasRun ? '/courses/google-ads/run' : '#pricing'}>
+          <Card hover className="flex items-center gap-4 p-5">
+            <span
+              className={cn(
+                'grid h-12 w-12 shrink-0 place-items-center rounded-xl border-2 border-[var(--ink)]',
+                runUnlocked ? 'bg-[var(--green)] text-white' : 'bg-[var(--surface-3)] text-[var(--text-muted)]',
+              )}
+            >
+              {runUnlocked ? <PartyPopper size={22} /> : <Lock size={20} />}
             </span>
             <div className="min-w-0 flex-1">
-              <div className="font-extrabold">A Run tier for Search is being built</div>
+              <div className="font-extrabold">
+                {runUnlocked
+                  ? 'Run is unlocked'
+                  : hasRun
+                    ? `Run. Finish all ${GOOGLE_AVAILABLE_LESSONS} Learn lessons to open it`
+                    : learnComplete
+                      ? `Run, ₹${RUN_PRICE} to unlock`
+                      : 'Run. Locked until Learn is complete'}
+              </div>
               <div className="text-sm text-[var(--text-muted)]">
-                {learnComplete
-                  ? 'You have finished Learn. The hands-on Search account simulator is next, and it is not ready yet.'
-                  : 'Meta Ads already has one. Search needs its own — the auction works differently enough that it cannot be a reskin.'}
+                {runUnlocked
+                  ? 'Seven graded missions across Search, Performance Max and App campaigns.'
+                  : hasRun
+                    ? 'You own it. The lessons come first, because the missions assume them.'
+                    : learnComplete
+                      ? 'You finished Learn. Pay to step into the account simulator.'
+                      : `Finish all ${GOOGLE_AVAILABLE_LESSONS} Learn lessons to unlock it.`}
               </div>
             </div>
+            <ArrowRight size={18} className="shrink-0 text-[var(--text-faint)]" />
           </Card>
-        </div>
+        </Link>
       </div>
     </div>
   );
