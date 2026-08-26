@@ -5,6 +5,7 @@ import { getCurrentProfile } from '@/lib/auth/server';
 import { CourseCard } from '@/components/app/CourseCard';
 import { SiteHeader, SiteFooter } from '@/components/marketing/SiteChrome';
 import { entitlementsFor } from '@/lib/payments/entitlements';
+import { getAdmin } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,9 +24,13 @@ export default async function CoursesPage() {
     ? await entitlementsFor(profile.id, 'meta-ads')
     : undefined;
 
+  // Decides whether the header offers the analytics link. /admin re-checks on
+  // every request, so this is presentation only.
+  const isAdmin = profile ? Boolean(await getAdmin()) : false;
+
   return (
     <div className="min-h-screen">
-      <SiteHeader authed={authed} />
+      <SiteHeader authed={authed} isAdmin={isAdmin} />
 
       <div className="mx-auto max-w-6xl px-5 py-10 md:px-8">
         <Link href="/" className="mb-4 inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)]">

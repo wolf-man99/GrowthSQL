@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Sparkles, ArrowRight } from 'lucide-react';
+import { Sparkles, ArrowRight, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/primitives';
 
 /**
@@ -8,8 +8,12 @@ import { Button } from '@/components/ui/primitives';
  *
  * No Simulator link: the simulator lives as a demo section on the homepage and has
  * no route of its own yet. It gets a nav slot when it becomes a real page.
+ *
+ * `isAdmin` puts the analytics link where an admin actually is. Signing in lands
+ * on /courses, and that page's header is this one — so an admin link that lives
+ * only in the SQL app's user menu is a link most admins never see.
  */
-export function SiteHeader({ authed }: { authed: boolean }) {
+export function SiteHeader({ authed, isAdmin }: { authed: boolean; isAdmin?: boolean }) {
   return (
     <header className="sticky top-0 z-30 glass">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 md:px-8">
@@ -26,6 +30,14 @@ export function SiteHeader({ authed }: { authed: boolean }) {
           >
             Courses
           </Link>
+          {authed && isAdmin && (
+            <Link
+              href="/admin"
+              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-bold text-[var(--text-muted)] hover:text-[var(--text)]"
+            >
+              <BarChart3 size={15} /> <span className="hidden sm:inline">Analytics</span>
+            </Link>
+          )}
           {authed ? (
             <Link href="/courses"><Button size="sm">My courses <ArrowRight size={14} /></Button></Link>
           ) : (

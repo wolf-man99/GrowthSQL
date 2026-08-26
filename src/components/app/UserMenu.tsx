@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, Settings, ChevronDown, User } from 'lucide-react';
+import { LogOut, Settings, ChevronDown, User, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { identify, resetIdentity } from '@/lib/analytics/events';
 
-interface Me { id: string; displayName: string; email: string | null; image: string | null; avatarSeed: string }
+interface Me { id: string; displayName: string; email: string | null; image: string | null; avatarSeed: string; isAdmin?: boolean }
 
 export function UserMenu() {
   const router = useRouter();
@@ -57,6 +57,11 @@ export function UserMenu() {
           <div className="p-1">
             <MenuItem icon={<User size={15} />} label="Dashboard" onClick={() => { router.push('/dashboard'); setOpen(false); }} />
             <MenuItem icon={<Settings size={15} />} label="Courses" onClick={() => { router.push('/courses'); setOpen(false); }} />
+            {/* The only entrance to the admin dashboard. Without it an admin has to
+                know the URL, which is how a working page looks broken. */}
+            {me?.isAdmin && (
+              <MenuItem icon={<BarChart3 size={15} />} label="Platform analytics" onClick={() => { router.push('/admin'); setOpen(false); }} />
+            )}
             <MenuItem icon={<LogOut size={15} />} label="Sign out" onClick={logout} danger />
           </div>
         </div>

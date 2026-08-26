@@ -1,6 +1,8 @@
 import Link from 'next/link';
-import { ArrowLeft, ShieldCheck } from 'lucide-react';
-import { requireAdmin } from '@/lib/auth/admin';
+import { notFound, redirect } from 'next/navigation';
+import { ArrowLeft, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { getAdmin, isAdminConfigured } from '@/lib/auth/admin';
+import { getProfileId } from '@/lib/auth/server';
 import { adminSnapshot, type Distribution } from '@/lib/admin/metrics';
 import { Card, SectionTitle, Stat, Empty } from '@/components/ui/primitives';
 
@@ -25,7 +27,25 @@ const rupees = (paise: number) => `₹${Math.round(paise / 100).toLocaleString('
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
 export default async function AdminDashboard() {
-  const admin = await requireAdmin();
+  const profileId = await getProfileId();
+  if (!profileId) redirect('/login?next=%2Fadmin');
+
+  const admin = await getAdmin();
+  if (!admin) {
+    // Two ways to not be an admin, and they deserve different answers.
+    //
+    // Nobody is an admin because none was ever configured: that is a deployment
+    // that has not finished being set up, and returning 404 to its owner turns a
+    // one-line fix into a debugging session. Named plainly instead. The
+    // information it leaks — that this platform has an admin area — is worth
+    // little on a deployment that currently has no admins to protect.
+    //
+    // Admins exist and this is not one: 404, because the existence of an admin
+    // area is not something a stranger needs confirmed.
+    if (isAdminConfigured()) notFound();
+    return <NotConfigured />;
+  }
+
   const s = await adminSnapshot();
 
   return (
@@ -230,6 +250,34 @@ export default async function AdminDashboard() {
           Generated {s.generatedAt.toISOString().replace('T', ' ').slice(0, 19)} UTC. Refresh for current figures.
         </p>
       </div>
+    </div>
+  );
+}
+
+function NotConfigured() {
+  return (
+    <div className="mx-auto max-w-lg px-5 py-20 text-center md:px-8">
+      <span className="mx-auto grid h-16 w-16 place-items-center rounded-2xl border-2 border-[var(--ink)] bg-[var(--amber)] shadow-[3px_3px_0_var(--ink)]">
+        <ShieldAlert size={26} className="text-[var(--ink)]" />
+      </span>
+      <h1 className="mt-5 text-2xl font-extrabold tracking-tight">No admins are configured</h1>
+      <p className="mt-2 text-[var(--text-muted)]">
+        This dashboard is gated on an <code className="mono">ADMIN_EMAILS</code> environment
+        variable, and it is not set on this deployment. Until it is, nobody can reach this page,
+        including you.
+      </p>
+      <div className="mt-6 rounded-xl border-2 border-[var(--ink)] bg-[var(--surface-2)] p-4 text-left">
+        <div className="mb-1.5 text-[11px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">
+          Set this, then redeploy
+        </div>
+        <code className="mono block break-all text-[13px]">ADMIN_EMAILS=you@yourdomain.com</code>
+        <p className="mt-2 text-xs text-[var(--text-subtle)]">
+          Comma-separated for several. The address has to match an account that already exists.
+        </p>
+      </div>
+      <Link href="/courses" className="mt-6 inline-flex items-center gap-1.5 text-sm font-bold text-[var(--text-muted)] hover:text-[var(--text)]">
+        <ArrowLeft size={14} /> Back to Tiramisu
+      </Link>
     </div>
   );
 }
