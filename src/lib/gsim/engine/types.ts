@@ -552,7 +552,14 @@ export const GMODEL = {
 
   /** Performance Max. `pmaxReach` scales how far past Search inventory it goes;
    *  the intent of what it finds out there degrades with distance. */
-  pmaxBrandAppetite: 0.55,
+  /** How much of the brand demand Performance Max wants.
+   *
+   *  Close to all of it, which is what it does. Brand searches are the cheapest,
+   *  best-converting inventory in any account, and a system told to maximise
+   *  conversions with no instruction to leave them alone will take as many as it
+   *  can reach. Modelling it as a coin flip would make the cannibalisation a
+   *  statistical curiosity rather than the thing that happens the week you launch. */
+  pmaxBrandAppetite: 0.92,
   pmaxOutsideIntentPenalty: 0.44,
   pmaxQualityBonus: 1.15,
 
