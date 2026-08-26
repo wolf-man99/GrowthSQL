@@ -48,6 +48,16 @@ interface Props {
   /** What a customer may cost at most. Used by the App panel. */
   ceiling: number;
   conversionName: string;
+  /**
+   * Called whenever the clock moves.
+   *
+   * The mission panel sits beside this component and needs the same day number —
+   * its brief counts down, and its grade button unlocks at the horizon. Without
+   * this the panel would keep the day it was rendered with on the server, tell a
+   * learner standing on the last day that they had fourteen left, and refuse to
+   * grade a run that was over.
+   */
+  onDayChange?: (day: number) => void;
 }
 
 type Pending =
@@ -116,6 +126,7 @@ export function GoogleRunDashboard(props: Props) {
       const json = await post('/api/gsim/tick', { accountId: props.accountId, days: n });
       setState(json.state as GState);
       setDays((prev) => [...prev, ...(json.results as GDayResult[])]);
+      props.onDayChange?.(json.currentDay as number);
       // Snap back to the most recent window, since the learner just asked to see
       // what happened rather than what had already happened.
       setWindowIndex(0);
@@ -124,7 +135,7 @@ export function GoogleRunDashboard(props: Props) {
     } finally {
       setBusy(false);
     }
-  }, [post, props.accountId]);
+  }, [post, props]);
 
   const edit = useCallback(async (payload: object, note?: string) => {
     setBusy(true); setError(null);

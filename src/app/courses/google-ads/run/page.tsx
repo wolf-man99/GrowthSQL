@@ -7,10 +7,9 @@ import { GOOGLE_LESSONS } from '@/lib/content/google-ads';
 import { COURSE_PRICING } from '@/lib/payments/pricing';
 import { Card, Button, Progress } from '@/components/ui/primitives';
 import { CheckoutButton } from '@/components/payments/CheckoutButton';
-import { GoogleRunDashboard } from '@/components/google/GoogleRunDashboard';
-import { GoogleRunStart } from '@/components/google/GoogleRunStart';
-import { loadGSandbox, loadGDays } from '@/lib/gsim/account';
-import { VERTICALS, type VerticalId } from '@/lib/gsim/verticals';
+import { GoogleMissionHub } from '@/components/google/GoogleMissionHub';
+import { loadGSandbox } from '@/lib/gsim/account';
+import { googleMissionProgress } from '@/lib/gsim/missions/progress';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,18 +33,31 @@ export default async function GoogleAdsRun() {
     return <LockedState completed={done.length} xp={profile.xp} learnComplete={learnComplete} />;
   }
 
-  const sandbox = await loadGSandbox(profileId);
+  // Parallel is safe: DATABASE_URL carries pgbouncer=true, so Prisma's engine never
+  // relies on server-side prepared statements.
+  const [progress, sandbox] = await Promise.all([
+    googleMissionProgress(profileId),
+    loadGSandbox(profileId),
+  ]);
+
+  // Only the fields the client component needs. A GMission carries buildState(),
+  // which is a function and cannot cross the server boundary.
+  const entries = progress.map(({ mission, status, score, accountId }) => ({
+    mission: {
+      id: mission.id, moduleSlug: mission.moduleSlug, order: mission.order,
+      title: mission.title, situation: mission.situation, brief: mission.brief,
+      hints: mission.hints, durationDays: mission.durationDays, xp: mission.xp,
+      objectives: mission.objectives.map((o) => ({ id: o.id, label: o.label, why: o.why })),
+    },
+    status, score, accountId,
+  }));
 
   return (
     <div className="min-h-screen">
       <Header />
-      <div className="mx-auto max-w-[1400px] px-4 py-7 md:px-6">
-        {sandbox ? <Live accountId={sandbox.id} /> : (
-          <div className="mx-auto max-w-3xl">
-            <Intro />
-            <GoogleRunStart resumable={false} />
-          </div>
-        )}
+      <div className="mx-auto max-w-3xl px-5 py-8 md:px-8">
+        <Intro />
+        <GoogleMissionHub entries={entries} sandboxAccountId={sandbox?.id ?? null} />
       </div>
     </div>
   );
@@ -77,44 +89,10 @@ function Intro() {
         A Google Ads account that answers back. Every search in the market is simulated
         individually — your keywords enter the auctions they match, pay what Ad Rank says
         they owe, and the search terms report shows what you actually bought rather than
-        what you asked for.
+        what you asked for. Seven missions, one per module, each dropping you into a
+        situation with a goal and grading what you did about it.
       </p>
     </div>
-  );
-}
-
-/**
- * The live account.
- *
- * Days are loaded whole rather than paged. An account's entire life is at most a
- * few months of rows and the dashboard's own date picker re-aggregates across an
- * arbitrary window of them, so fetching a slice server-side would only mean
- * fetching again the moment the learner changed the range.
- */
-async function Live({ accountId }: { accountId: string }) {
-  const [account, days] = await Promise.all([
-    prisma.simAccount.findUniqueOrThrow({ where: { id: accountId } }),
-    loadGDays(accountId),
-  ]);
-
-  const state = account.state as unknown as import('@/lib/gsim/engine/types').GState;
-  // Which market this is, recovered from the account rather than stored twice: the
-  // conversion name is set by the vertical and nothing else writes it.
-  const verticalId: VerticalId =
-    state.conditions.conversionName === VERTICALS.b2b.conditions.conversionName ? 'b2b' : 'd2c';
-  const vertical = VERTICALS[verticalId];
-
-  return (
-    <GoogleRunDashboard
-      accountId={accountId}
-      initialState={state}
-      initialDays={days}
-      brand={vertical.brand}
-      verticalLabel={vertical.label}
-      breakEven={1 / vertical.conditions.margin}
-      ceiling={vertical.conditions.conversionValue * vertical.conditions.margin}
-      conversionName={vertical.conditions.conversionName}
-    />
   );
 }
 
