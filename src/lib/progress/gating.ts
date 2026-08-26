@@ -44,7 +44,7 @@ const LEARN_COMPLETE_CHECKERS: Record<string, LearnCompleteChecker> = {
  * simulator that does not exist. Finishing Learn and having somewhere to go next
  * are two different facts.
  */
-const RUN_TIER_COURSES: ReadonlySet<string> = new Set(['meta-ads']);
+const RUN_TIER_COURSES: ReadonlySet<string> = new Set(['meta-ads', 'google-ads']);
 
 /** True once this course has a Learn tier and this learner has finished every lesson in it. */
 export async function isLearnComplete(db: Db, profileId: string, courseId: string): Promise<boolean> {

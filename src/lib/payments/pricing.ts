@@ -35,7 +35,7 @@ export const COURSE_PRICING: Record<string, CoursePricing> = {
   // than a pricing conversation.
   'google-ads': {
     prices: { learn: 999, run: 1999, bundle: 2499 },
-    sells: ['learn'],
+    sells: ['learn', 'run', 'bundle'],
   },
 };
 

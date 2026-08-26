@@ -279,7 +279,7 @@ model DailyActivity {
 model SimAccount {
   id         String   @id @default(cuid())
   profileId  String
-  courseId   String // 'meta-ads'
+  courseId   String // 'meta-ads' | 'google-ads'
   /// Null for the free-play sandbox; otherwise the mission this account is running.
   missionId  String?
   /// Days elapsed since the account opened. Advanced by the tick, never by wall clock.
@@ -287,8 +287,11 @@ model SimAccount {
   status     String   @default("active") // active | complete | abandoned
   /// Every random draw derives from this, so a run replays identically.
   seed       Int
-  /// SimState from src/lib/simulator/engine/types.ts: campaigns, ad sets, ads,
-  /// audiences, account conditions, and each entity's cumulative runtime counters.
+  /// The account's whole settings tree and its cumulative counters. Shape depends
+  /// on courseId: SimState (src/lib/simulator/engine/types.ts) for Meta Ads,
+  /// GState (src/lib/gsim/engine/types.ts) for Google Ads. One column rather than
+  /// two because nothing ever reads it without already knowing which course it is,
+  /// and a nullable second column would be a foot-gun for no gain.
   state      Json
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -296,8 +299,33 @@ model SimAccount {
   profile  Profile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
   days     SimDay[]
   segments SimDaySegment[]
+  gdays    GSimDay[]
 
   @@index([profileId, courseId])
+}
+
+/// One simulated day of a Google Ads account, stored whole.
+///
+/// Deliberately not modelled the way SimDay is. Meta's rows are relational because
+/// they are read *across* entities and date ranges, which is what SQL is for.
+/// Google's day is a different shape — an account total, a row per campaign, a row
+/// per keyword, every search term that appeared, Performance Max's category
+/// insights, and an App campaign's channel split — and every read of it is "this
+/// one learner's account, over a range of at most ninety days". Splitting that into
+/// five tables would buy joins nobody needs and five chances for the pieces to
+/// disagree. So the day is stored as it was produced, and aggregated in TypeScript
+/// by the same code that reads it.
+model GSimDay {
+  id        String @id @default(cuid())
+  accountId String
+  day       Int
+  /// GDayResult from src/lib/gsim/engine/types.ts.
+  result    Json
+
+  account SimAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, day])
+  @@index([accountId])
 }
 
 /// One entity's numbers for one simulated day. Written once per tick and never
