@@ -13,6 +13,11 @@ export {
   adRank, drawRivals, resolveAuction, runAuction, ctrForPosition,
 } from './auction';
 export type { Quality, QualityInputs, AuctionInputs, AuctionOutcome, ResolveInputs } from './auction';
+export {
+  APP_CHANNELS, APP_CHANNEL_BY_ID, APP_GOAL_LABEL, tickApp,
+  costPerInstall, costPerEvent, activationRate,
+} from './app';
+export type { AppChannel, AppAssets, AppBidGoal, AppSettings, AppTickInputs } from './app';
 export { tick, run } from './delivery';
 export type { GTickOptions } from './delivery';
 export { mulberry32, stringSeed, streamFor, jitter } from './rng';

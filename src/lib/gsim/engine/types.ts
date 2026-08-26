@@ -16,13 +16,19 @@
 /** Google's real campaign types. Search is the one a learner starts with; PMax is
  *  modelled because its lesson only exists when it runs *beside* Search in the
  *  same account and quietly eats its traffic. */
-export type GCampaignType = 'search' | 'pmax' | 'shopping';
+export type GCampaignType = 'search' | 'pmax' | 'app' | 'shopping';
 
 export const CAMPAIGN_TYPE_LABEL: Record<GCampaignType, string> = {
   search: 'Search',
   pmax: 'Performance Max',
+  app: 'App',
   shopping: 'Shopping',
 };
+
+/** Where an App campaign's ads can run. Not selectable — that is the point of the
+ *  campaign type — but reported, which is how a learner discovers where the money
+ *  went and why the installs from there never opened the app again. */
+export type AppChannelId = 'search' | 'play' | 'youtube' | 'discover' | 'display';
 
 export type MatchType = 'exact' | 'phrase' | 'broad';
 
@@ -181,6 +187,11 @@ export interface GCampaign {
   /** Performance Max only: how aggressively it reaches beyond Search inventory.
    *  Higher means more volume and worse average intent. */
   pmaxReach?: number;
+  /** App campaigns only. Carries its own goal and assets because an App campaign
+   *  has neither keywords nor bids in the sense the rest of the model means them —
+   *  see engine/app.ts. Typed loosely here to keep this module free of the App
+   *  channel table; `AppSettings` in that file is the real shape. */
+  app?: import('./app').AppSettings;
   runtime: CampaignRuntime;
 }
 
@@ -346,6 +357,29 @@ export interface PmaxInsightRow extends GDayMetrics {
   category: string;
 }
 
+/** One inventory channel's day inside an App campaign. */
+export interface AppChannelRow extends GDayMetrics {
+  channelId: AppChannelId;
+  label: string;
+  /** Installs, which is not the same as conversions and is the whole lesson. */
+  installs: number;
+  /** The in-app action the business actually wanted. */
+  events: number;
+}
+
+/** An App campaign's day. Separate from CampaignDayResult because it carries two
+ *  extra counts — installs and in-app actions — whose divergence is the point. */
+export interface AppDayResult extends GDayMetrics {
+  campaignId: string;
+  installs: number;
+  events: number;
+  channels: AppChannelRow[];
+  budget: number;
+  budgetCapped: boolean;
+  /** Set when the campaign could not run at all, with the reason in plain words. */
+  blocked?: string;
+}
+
 export interface GDayResult {
   day: number;
   account: GDayMetrics;
@@ -356,6 +390,8 @@ export interface GDayResult {
   searchTerms: SearchTermRow[];
   /** The category-level view Performance Max offers in place of search terms. */
   pmaxInsights: PmaxInsightRow[];
+  /** One entry per App campaign, with its channel breakdown. */
+  apps: AppDayResult[];
 }
 
 // ─────────────────────────────────────────────────────────────────── tuning ──

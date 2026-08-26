@@ -27,7 +27,7 @@ import {
   GMODEL, G_WEEKDAY_WEIGHT, dayShareAt, drawSearchTime, emptyDayMetrics,
   type CampaignDayResult, type GAd, type GAdGroup, type GCampaign, type GDayMetrics,
   type GDayResult, type GKeyword, type GState, type KeywordDayResult, type KeywordState,
-  type PmaxInsightRow, type SearchTermRow, type SearchQuery,
+  type AppDayResult, type PmaxInsightRow, type SearchTermRow, type SearchQuery,
 } from './types';
 import { eligibleKeywords, negativeBlocks, negativesFor, winnerPerCampaign } from './matching';
 import {
@@ -35,6 +35,7 @@ import {
   resolveAuction, type Quality,
 } from './auction';
 import { jitter, mulberry32, streamFor, stringSeed, type Rng } from './rng';
+import { tickApp } from './app';
 
 export interface GTickOptions {
   seed: number;
@@ -578,12 +579,34 @@ export function tick(state: GState, opts: GTickOptions): { state: GState; result
     keywordResults.push(row);
   }
 
+  // ── App campaigns ───────────────────────────────────────────────────────
+  //
+  // Run beside the search loop rather than inside it. An App campaign does not
+  // enter query auctions — it has no keywords to enter them with — so forcing it
+  // through the same path would mean inventing a query universe for YouTube and
+  // Display that nobody would learn anything from. See engine/app.ts.
+  const apps: AppDayResult[] = [];
+  for (const c of next.campaigns) {
+    if (c.type !== 'app' || !isLive(c) || !c.app) continue;
+    const result = tickApp({
+      campaign: c, app: c.app,
+      marketPressure: next.conditions.marketPressure,
+      day, seed: opts.seed,
+    });
+    apps.push(result);
+    spendByCampaign.set(c.id, result.cost);
+    if (result.budgetCapped) cappedCampaigns.add(c.id);
+  }
+  const appById = new Map(apps.map((a) => [a.campaignId, a]));
+
   const campaignResults: CampaignDayResult[] = next.campaigns.map((c) => {
     const totals = c.type === 'search'
       ? keywordResults
         .filter((k) => k.campaignId === c.id)
         .reduce((acc, k) => { addInto(acc, k); return acc; }, emptyDayMetrics())
-      : { ...(pmaxDay.get(c.id) ?? emptyDayMetrics()) };
+      : c.type === 'app'
+        ? metricsOf(appById.get(c.id))
+        : { ...(pmaxDay.get(c.id) ?? emptyDayMetrics()) };
 
     if (c.type !== 'search') addInto(account, totals);
 
@@ -614,7 +637,16 @@ export function tick(state: GState, opts: GTickOptions): { state: GState; result
       keywords: keywordResults,
       searchTerms: Array.from(searchTerms.values()),
       pmaxInsights: Array.from(pmaxInsights.values()),
+      apps,
     },
+  };
+}
+
+function metricsOf(app: AppDayResult | undefined): GDayMetrics {
+  if (!app) return emptyDayMetrics();
+  return {
+    impressions: app.impressions, clicks: app.clicks, cost: app.cost,
+    conversions: app.conversions, convValue: app.convValue,
   };
 }
 

@@ -20,7 +20,7 @@
  */
 
 import {
-  GMODEL, G_HOUR_CUMULATIVE, conceptsOf, dayShareAt, drawSearchTime,
+  APP_CHANNELS, GMODEL, G_HOUR_CUMULATIVE, conceptsOf, dayShareAt, drawSearchTime,
   matchKeyword, negativeBlocks, resolveAuction, run, tick,
   type GDayResult, type GState, type SearchQuery,
 } from '../src/lib/gsim/engine';
@@ -29,6 +29,9 @@ import {
 } from '../src/lib/gsim/state';
 import { buildD2CStartingAccount } from '../src/lib/gsim/scenarios/d2c-starting';
 import { buildD2CFixedAccount } from '../src/lib/gsim/scenarios/d2c-fixed';
+import {
+  buildAppStartingAccount, buildAppFixedAccount, NORTHBOUND_APP,
+} from '../src/lib/gsim/scenarios/app-starting';
 import { VERTICALS } from '../src/lib/gsim/verticals';
 
 const SEED = 20260903;
@@ -604,6 +607,123 @@ section('Module 7 — Performance Max, and what it quietly takes');
     campaignTotals(ex.results, 'c-brand').impressions > brandAfter.impressions,
     `brand campaign impressions ${brandAfter.impressions.toLocaleString('en-IN')} `
     + `→ ${campaignTotals(ex.results, 'c-brand').impressions.toLocaleString('en-IN')}`);
+}
+
+// ═══════════════════════════════════════ 7. App campaigns (UAC) ════════════
+
+section('App campaigns — the cost per install is the number that lies');
+{
+  // The inversion the whole module rests on. If this stops being true, every App
+  // lesson downstream becomes a lie told confidently.
+  const cpi = (c: typeof APP_CHANNELS[number]) => c.cpm / 1000 / (c.ctr * c.installRate);
+  const cpe = (c: typeof APP_CHANNELS[number]) =>
+    cpi(c) / (NORTHBOUND_APP.eventRate * c.retention);
+
+  const cheapest = [...APP_CHANNELS].sort((a, b) => cpi(a) - cpi(b))[0];
+  const dearest = [...APP_CHANNELS].sort((a, b) => cpi(b) - cpi(a))[0];
+
+  check('the cheapest installs come from the worst inventory',
+    cpi(cheapest) < cpi(dearest) * 0.2 && cpe(cheapest) > cpe(dearest) * 2,
+    `${cheapest.label} sells installs at ${inr(cpi(cheapest))} and customers at ${inr(cpe(cheapest))}; `
+    + `${dearest.label} sells installs at ${inr(cpi(dearest))} and customers at ${inr(cpe(dearest))}`);
+
+  check('and the cheap channels cannot produce a customer within the margin',
+    cpe(cheapest) > NORTHBOUND_APP.ceiling && cpe(dearest) < NORTHBOUND_APP.ceiling,
+    `ceiling ${inr(NORTHBOUND_APP.ceiling)}: ${cheapest.label} needs ${inr(cpe(cheapest))}, `
+    + `${dearest.label} needs ${inr(cpe(dearest))}`);
+}
+
+{
+  const installsRun = run(buildAppStartingAccount(), 28, { seed: SEED }).results;
+  const actionRun = run(buildAppFixedAccount(), 28, { seed: SEED }).results;
+
+  const appTotals = (results: GDayResult[]) =>
+    results.flatMap((r) => r.apps).reduce((a, x) => ({
+      cost: a.cost + x.cost, installs: a.installs + x.installs, events: a.events + x.events,
+      value: a.value + x.convValue,
+    }), { cost: 0, installs: 0, events: 0, value: 0 });
+
+  const i = appTotals(installsRun);
+  const a = appTotals(actionRun);
+
+  check('both campaigns spend the same money',
+    Math.abs(a.cost - i.cost) / i.cost < 0.05,
+    `${inr(i.cost)} vs ${inr(a.cost)} over 28 days`);
+
+  check('optimising for installs buys far more of them, far cheaper',
+    i.installs > a.installs * 2 && i.cost / i.installs < a.cost / a.installs * 0.5,
+    `${i.installs.toLocaleString('en-IN')} installs at ${inr(i.cost / i.installs)} versus `
+    + `${a.installs.toLocaleString('en-IN')} at ${inr(a.cost / a.installs)}`);
+
+  // The finding the module exists for, stated as bluntly as the model permits.
+  check('and produces fewer customers, at a cost the margin cannot cover',
+    a.events > i.events * 1.5
+    && i.cost / i.events > NORTHBOUND_APP.ceiling
+    && a.cost / a.events < NORTHBOUND_APP.ceiling,
+    `${i.events} first purchases at ${inr(i.cost / i.events)} against a ${inr(NORTHBOUND_APP.ceiling)} `
+    + `ceiling, versus ${a.events} at ${inr(a.cost / a.events)}`);
+
+  check('so the reported metric moves the wrong way while the business improves',
+    i.cost / i.installs < a.cost / a.installs && i.value / i.cost < a.value / a.cost,
+    `cost per install worsens ${inr(i.cost / i.installs)} → ${inr(a.cost / a.installs)} `
+    + `while ROAS improves ${(i.value / i.cost).toFixed(2)} → ${(a.value / a.cost).toFixed(2)}`);
+
+  const activation = (t: { installs: number; events: number }) => t.events / t.installs;
+  check('because the installs themselves are different people',
+    activation(a) > activation(i) * 3,
+    `${pct(activation(i))} of installs make a purchase when buying installs, `
+    + `${pct(activation(a))} when buying purchases`);
+
+  check('an install-optimised campaign loses money outright',
+    i.value / i.cost < 1 / VERTICALS.d2c.conditions.margin,
+    `ROAS ${(i.value / i.cost).toFixed(2)} against break-even `
+    + `${(1 / VERTICALS.d2c.conditions.margin).toFixed(2)} — a campaign nobody would question `
+    + 'on the numbers it reports');
+}
+
+{
+  // Assets are not decoration: they are which half of the internet you may run on.
+  const noVideo = buildAppFixedAccount();
+  noVideo.campaigns[0].app!.assets = { headlines: 8, descriptions: 5, images: 10, videos: 0 };
+  const withVideo = buildAppFixedAccount();
+
+  const channelsUsed = (s: GState) => {
+    const seen = new Set<string>();
+    for (const r of run(s, 7, { seed: SEED }).results) {
+      for (const app of r.apps) for (const ch of app.channels) if (ch.impressions > 0) seen.add(ch.channelId);
+    }
+    return seen;
+  };
+
+  check('no video means no YouTube inventory',
+    !channelsUsed(noVideo).has('youtube') && channelsUsed(withVideo).has('youtube'),
+    'the format gates the placement, and the placement is never selectable');
+
+  const noImages = buildAppFixedAccount();
+  noImages.campaigns[0].app!.assets = { headlines: 8, descriptions: 5, images: 0, videos: 4 };
+  const withoutImages = channelsUsed(noImages);
+  check('and no images means no Display or Discover',
+    !withoutImages.has('display') && !withoutImages.has('discover'),
+    `runs on ${[...withoutImages].join(', ') || 'nothing'}`);
+
+  const noText = buildAppFixedAccount();
+  noText.campaigns[0].app!.assets = { headlines: 0, descriptions: 0, images: 10, videos: 4 };
+  const dead = run(noText, 3, { seed: SEED }).results;
+  check('and with no text assets the campaign cannot run at all',
+    dead.every((d) => d.apps.every((x) => x.impressions === 0 && Boolean(x.blocked))),
+    dead[0]?.apps[0]?.blocked ?? 'no result');
+}
+
+{
+  // A target is a filter, here as everywhere else.
+  const impossible = buildAppFixedAccount();
+  impossible.campaigns[0].app!.targetEventCpa = 120;
+  const results = run(impossible, 5, { seed: SEED }).results;
+  check('a target no channel can meet stops the campaign rather than improving it',
+    results.every((d) => d.apps.every((x) => x.cost === 0 && Boolean(x.blocked))),
+    `asking for a ${inr(120)} customer in a market whose cheapest is `
+    + `${inr(Math.min(...APP_CHANNELS.map((c) => c.cpm / 1000 / (c.ctr * c.installRate) / (NORTHBOUND_APP.eventRate * c.retention))))} `
+    + 'delivers nothing at all');
 }
 
 // ══════════════════════════════════════════════ 7. The market itself ════════
